@@ -91,7 +91,7 @@ required>
 <th>ID</th>
 <th>الاسم</th>
 <th>الجائزة</th>
-<th>الحالة</th>
+<th>الحالة</th>\n<th>الفائزون</th>
 <th>إجراءات</th>
 </tr>
 
@@ -106,6 +106,19 @@ required>
 <td><%= g.prize %></td>
 
 <td><%= g.status %></td>
+
+<td>
+<%
+let gw = winners.filter(w=>w.giveaway_id === g.id);
+%>
+
+<% if(gw.length){ %>
+<%= gw.map(w=>`<@${w.user_id}>`).join(", ") %>
+<% } else { %>
+لا يوجد
+<% } %>
+
+</td>
 
 <td>
 <a href="/dashboard/<%= guildId %>/giveaways/delete/<%= g.id %>">

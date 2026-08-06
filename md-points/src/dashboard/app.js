@@ -325,10 +325,19 @@ app.get("/dashboard/:guildId/giveaways", (req, res) => {
         return res.send("Database Error");
       }
 
-      res.render("giveaways", {
-        guildId,
-        giveaways
-      });
+      db.all(
+        "SELECT * FROM giveaway_winners",
+        [],
+        (e, winners) => {
+
+          res.render("giveaways", {
+            guildId,
+            giveaways,
+            winners: winners || []
+          });
+
+        }
+      );
 
     }
   );
@@ -352,7 +361,7 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
  } = req.body;
 
 
- const time = new Date(run_at).getTime();
+ const time = new Date(run_at + ":00+03:00").getTime();
 
 
  db.run(

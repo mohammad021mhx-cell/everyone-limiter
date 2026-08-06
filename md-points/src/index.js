@@ -344,4 +344,4 @@ const runGiveaways = require("./giveawayRunner");
 
 setInterval(() => {
   runGiveaways(client);
-}, 10000);
+}, 60000);

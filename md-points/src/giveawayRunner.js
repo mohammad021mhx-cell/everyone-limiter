@@ -1,4 +1,6 @@
+console.log("GIVEAWAY RUNNER WORKING");
 const db = require("./database/connect");
+const processing = new Set();
 
 module.exports = function(client){
 
@@ -9,19 +11,51 @@ module.exports = function(client){
 
    if(err) return console.error(err);
 
+
    for(const giveaway of giveaways){
+
+    if(processing.has(giveaway.id)){
+      continue;
+    }
+
+    processing.add(giveaway.id);
 
     let users=[];
 
     if(giveaway.type === "forced"){
 
-      const guild = await client.guilds.fetch(giveaway.guild_id);
+      let guild;
 
-      const members = await guild.members.fetch();
+      try {
+
+        guild = await client.guilds.fetch(giveaway.guild_id);
+
+      } catch(err){
+
+        console.error("GUILD FETCH ERROR:", err.message);
+        processing.delete(giveaway.id);
+        continue;
+
+      }
+
+      let members;
+
+      try {
+
+        members = await guild.members.fetch();
+
+  
+      } catch(err){
+
+        console.error("MEMBERS FETCH ERROR:", err.message);
+        continue;
+
+      }
 
       users = members
       .filter(m => m.roles.cache.has(giveaway.role_id))
       .map(m=>m.id);
+
 
     } else {
 
@@ -37,6 +71,30 @@ module.exports = function(client){
 
     }
 
+
+    if(!users.length){
+
+      const channel = await client.channels.fetch(giveaway.channel_id)
+      .catch(()=>null);
+
+      if(channel){
+        channel.send(
+`⚠️ انتهى السحب
+
+🎁 الجائزة: ${giveaway.prize}
+
+لم يتم العثور على مشاركين مؤهلين.`
+        );
+      }
+
+      db.run(
+        "UPDATE giveaways SET status='completed' WHERE id=?",
+        [giveaway.id]
+      );
+
+      processing.delete(giveaway.id);
+      continue;
+    }
 
     if(users.length){
 
@@ -55,6 +113,15 @@ module.exports = function(client){
 
       const channel = await client.channels.fetch(giveaway.channel_id)
       .catch(()=>null);
+
+      for(const winner of winners){
+
+        db.run(
+          "INSERT INTO giveaway_winners (giveaway_id,user_id,created_at) VALUES (?,?,?)",
+          [giveaway.id,winner,Date.now()]
+        );
+
+      }
 
       if(channel){
 
@@ -75,6 +142,8 @@ ${winners.map(id=>`<@${id}>`).join(", ")}`
       "UPDATE giveaways SET status='completed' WHERE id=?",
       [giveaway.id]
     );
+
+    processing.delete(giveaway.id);
 
    }
 
