@@ -204,6 +204,10 @@ ID القناة:
 📌 الحالة: <%= g.status %>
 
 <br>
+👥 المشاركون:
+<%= entries.filter(e => e.giveaway_id === g.id).length %>
+
+<br>
 🏆 الفائزون:
 <%
 let gw = winners.filter(w => w.giveaway_id === g.id);
