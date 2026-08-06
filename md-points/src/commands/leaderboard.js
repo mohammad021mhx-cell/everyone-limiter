@@ -7,6 +7,9 @@ module.exports = {
     .setDescription("عرض أعلى الأعضاء بالنقاط"),
 
   async execute(interaction) {
+
+    await interaction.deferReply();
+
     const guildId = interaction.guild.id;
 
     db.all(
@@ -17,27 +20,27 @@ module.exports = {
        LIMIT 10`,
       [guildId],
       async (err, rows) => {
+
         if (err) {
-          return interaction.reply({
-            content: "حدث خطأ في قاعدة البيانات",
-            ephemeral: true
-          });
+          return interaction.editReply("حدث خطأ في قاعدة البيانات");
         }
 
         if (!rows.length) {
-          return interaction.reply("لا يوجد أعضاء لديهم نقاط بعد");
+          return interaction.editReply("لا يوجد أعضاء لديهم نقاط بعد");
         }
 
         let text = "🏆 **المتصدرون:**\n\n";
 
         for (let i = 0; i < rows.length; i++) {
+
           const user = await interaction.guild.members.fetch(rows[i].user_id)
             .catch(() => null);
 
-          text += `${i + 1}. ${user ? user.user.tag : "عضو غير موجود"} - ⭐ ${rows[i].total_points}\n`;
+          text += `${i + 1}. ${user ? user.user.tag : rows[i].user_id} - ⭐ ${rows[i].total_points}\n`;
         }
 
-        interaction.reply(text);
+        interaction.editReply(text);
+
       }
     );
   }
