@@ -140,16 +140,17 @@ app.post("/shop/:guildId", (req,res)=>{
     name,
     price,
     type,
-    value
+    value,
+    stock
   } = req.body;
 
   console.log("BODY:", req.body);
 
   db.run(
     `INSERT INTO shop_items
-    (guild_id,name,price,type,value)
-    VALUES (?,?,?,?,?)`,
-    [guildId,name,price,type,value]
+    (guild_id,name,price,type,value,stock)
+    VALUES (?,?,?,?,?,?)`,
+    [guildId,name,price,type,value,stock || -1]
   );
 
   res.redirect("/shop/"+guildId);
@@ -243,9 +244,9 @@ app.post("/dashboard/:guildId/shop", (req,res)=>{
  const {name,price,type,value}=req.body;
  console.log("SHOP DATA:", req.body);
  db.run(
- `INSERT INTO shop_items (guild_id,name,price,type,value,requires_input,input_name)
- VALUES (?,?,?,?,?,?,?)`,
- [guildId,name,price,type,value,req.body.requires_input ? 1 : 0,req.body.input_name || ""],
+ `INSERT INTO shop_items (guild_id,name,price,type,value,requires_input,input_name,stock)
+ VALUES (?,?,?,?,?,?,?,?)`,
+ [guildId,name,price,type,value,req.body.requires_input ? 1 : 0,req.body.input_name || "",req.body.stock || -1],
  ()=>{
    res.redirect("/dashboard/"+guildId);
  }

@@ -115,6 +115,13 @@ client.on("interactionCreate", async interaction => {
             });
           }
 
+          if (item.stock === 0) {
+            return interaction.reply({
+              content: "❌ نفذت الكمية",
+              ephemeral: true
+            });
+          }
+
           if (item.requires_input) {
 
             const modal = new ModalBuilder()
@@ -149,7 +156,15 @@ client.on("interactionCreate", async interaction => {
 
               db.run(
                 "UPDATE users SET total_points=total_points-? WHERE guild_id=? AND user_id=? AND total_points>=?",
-                [item.price, guildId, userId, item.price]
+                [item.price, guildId, userId, item.price],
+                ()=>{
+                  if(item.stock > 0){
+                    db.run(
+                      "UPDATE shop_items SET stock=stock-1 WHERE id=?",
+                      [item.id]
+                    );
+                  }
+                }
               );
 
               interaction.reply({
@@ -232,9 +247,24 @@ client.on("interactionCreate", async interaction => {
             });
           }
 
+          if (item.stock === 0) {
+            return interaction.reply({
+              content: "❌ نفذت الكمية",
+              ephemeral: true
+            });
+          }
+
           db.run(
-            "UPDATE users SET total_points=total_points-? WHERE guild_id=? AND user_id=? AND total_points>=?"
-            [item.price, guildId, userId, item.price]
+            "UPDATE users SET total_points=total_points-? WHERE guild_id=? AND user_id=? AND total_points>=?",
+            [item.price, guildId, userId, item.price],
+            ()=>{
+              if(item.stock > 0){
+                db.run(
+                  "UPDATE shop_items SET stock=stock-1 WHERE id=?",
+                  [item.id]
+                );
+              }
+            }
           );
 
           db.run(
