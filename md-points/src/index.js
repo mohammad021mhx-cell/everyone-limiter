@@ -364,7 +364,7 @@ client.login(process.env.TOKEN);
 const dashboard = require("./dashboard/app");
 dashboard.set("client", client);
 
-dashboard.listen(3000, () => {
+dashboard.listen(process.env.PORT || 3000, () => {
   console.log("🌐 Dashboard running on port 3000");
 });
 
