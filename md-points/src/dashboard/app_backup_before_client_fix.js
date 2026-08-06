@@ -31,7 +31,7 @@ app.get("/settings/:guildId", (req, res) => {
         };
       }
 
-      res.render("settings", { settings, guildId });
+      res.render("settings", { settings });
     }
   );
 });
@@ -426,7 +426,6 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
 
 
 app.get("/dashboard/:guildId/giveaways/delete/:id",(req,res)=>{
- const client = req.app.get("client");
  console.log("DELETE GIVEAWAY:", req.params);
 
  const {guildId,id}=req.params;
