@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>MD Points Shop</title>
+</head>
+
+<body>
+
+<h1>🛒 إدارة المتجر</h1>
+
+<form method="POST">
+
+<label>اسم المنتج:</label>
+<input name="name">
+
+<br><br>
+
+<label>السعر:</label>
+<input name="price" type="number">
+
+<br><br>
+
+<label>نوع المكافأة:</label>
+<select name="type">
+<option value="text">مخصص</option>
+</select>
+
+<br><br>
+
+<label>وصف المكافأة:</label>
+<input name="value">
+
+<br><br>
+
+<label>
+<input type="checkbox" name="requires_input" value="1">
+يحتاج معلومات من العضو
+</label>
+
+<br><br>
+
+<label>اسم المعلومات المطلوبة:</label>
+<input name="input_name" placeholder="مثال: PUBG ID">
+
+<br><br>
+
+<button type="submit">➕ إضافة المنتج</button>
+
+</form>
+
+<hr>
+
+<h2>المنتجات الحالية</h2>
+
+<% items.forEach(item => { %>
+
+<p>
+🛒 <%= item.name %>
+<br>
+💰 <%= item.price %> 🪙
+<br>
+🎁 <%= item.value || "" %>
+<br>
+📝 يحتاج إدخال:
+<%= item.requires_input ? "نعم" : "لا" %>
+
+<% if(item.requires_input){ %>
+<br>
+🏷️ الحقل:
+<%= item.input_name %>
+<% } %>
+
+</p>
+
+<hr>
+
+<% }) %>
+
+</body>
+</html>

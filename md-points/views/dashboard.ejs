@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>MD Points Dashboard</title>
+</head>
+
+<body>
+
+<h1>🤖 MD Points Dashboard</h1>
+
+
+<form method="POST" action="/dashboard/<%= guildId %>">
+
+<h2>📝 إعدادات الرسائل</h2>
+
+نقاط الرسالة:
+<input name="text_points" value="<%= settings.text_points %>">
+
+<br><br>
+
+عدد الرسائل للحصول على النقاط:
+<input name="messages_required" value="<%= settings.messages_required || 1 %>">
+
+<br><br>
+
+أقل طول للرسالة:
+<input name="min_message_length" value="<%= settings.min_message_length %>">
+
+
+<h2>🎙️ إعدادات الصوت</h2>
+
+نقاط الصوت:
+<input name="voice_points" value="<%= settings.voice_points %>">
+
+<br><br>
+
+مدة الصوت:
+<input name="voice_interval" value="<%= settings.voice_interval %>">
+
+
+<br><br>
+
+<br><br>
+
+📢 ID قناة الطلبات:
+<input name="purchase_channel" value="<%= settings.purchase_channel || '' %>" placeholder="مثال: 123456789012345678">
+
+<br><br>
+
+<button type="submit">💾 حفظ الإعدادات</button>
+
+</form>
+
+
+<hr>
+
+
+<h2>🛒 إضافة منتج للمتجر</h2>
+
+<form method="POST" action="/dashboard/<%= guildId %>/shop">
+
+اسم المنتج:
+<input name="name">
+
+<br><br>
+
+السعر:
+<input name="price" type="number">
+
+<br><br>
+
+النوع:
+<select name="type">
+<option value="role">رتبة</option>
+<option value="text">مخصص</option>
+</select>
+
+<br><br>
+
+القيمة:
+<input name="value">
+
+<br><br>
+
+<label>
+<input type="checkbox" name="requires_input" value="1">
+يحتاج معلومات من العضو
+</label>
+
+<br><br>
+
+اسم المعلومات المطلوبة:
+<input name="input_name" placeholder="مثال: PUBG ID">
+
+<br><br>
+
+<button type="submit">➕ إضافة</button>
+
+</form>
+
+
+<hr>
+
+<h2>📦 المنتجات</h2>
+
+<% items.forEach(item=>{ %>
+
+<p>
+🛒 <%= item.name %>
+<br>
+💰 <%= item.price %> 🪙
+<br>
+🎁 <%= item.type %>
+<br><br>
+
+<a href="/dashboard/<%= guildId %>/shop/edit/<%= item.id %>">
+✏️ تعديل
+</a>
+
+<br>
+
+<a href="/dashboard/<%= guildId %>/shop/delete/<%= item.id %>">
+🗑️ حذف
+</a>
+
+</p>
+
+<hr>
+
+<% }) %>
+
+
+</body>
+</html>
+
+<hr>
+
+<h2>🎁 إدارة السحوبات</h2>
+
+<form method="POST" action="/dashboard/<%= guildId %>/giveaways">
+
+اسم السحب:
+<input name="name" required>
+
+<br><br>
+
+الجائزة:
+<input name="prize" required>
+
+<br><br>
+
+عدد الفائزين:
+<input type="number" name="winners_count" value="1">
+
+<br><br>
+
+نوع السحب:
+<select name="type">
+<option value="forced">إجباري</option>
+<option value="optional">اختياري</option>
+<option value="paid">اختياري برسوم</option>
+</select>
+
+<br><br>
+
+رسوم الاشتراك:
+<input type="number" name="entry_fee" value="0">
+
+<br><br>
+
+ID الرتبة:
+<input name="role_id">
+
+<br><br>
+
+ID القناة:
+<input name="channel_id">
+
+<br><br>
+
+موعد السحب:
+<input type="datetime-local" name="run_at">
+
+<br><br>
+
+<button type="submit">🎁 إنشاء السحب</button>
+
+</form>
+
+<hr>
+
+<h2>📋 السحوبات</h2>
+
+<% giveaways.forEach(g=>{ %>
+
+<p>
+🎁 <%= g.name %>
+<br>
+🏆 الجائزة: <%= g.prize %>
+<br>
+👥 الفائزين: <%= g.winners_count %>
+<br>
+📌 الحالة: <%= g.status %>
+
+<br><br>
+
+<a href="/dashboard/<%= guildId %>/giveaways/delete/<%= g.id %>">
+<button type="button">🗑️ حذف</button>
+</a>
+
+<a href="/dashboard/<%= guildId %>/giveaways/edit/<%= g.id %>">
+<button type="button">✏️ تعديل</button>
+</a>
+
+</p>
+
+<hr>
+
+<% }) %>
