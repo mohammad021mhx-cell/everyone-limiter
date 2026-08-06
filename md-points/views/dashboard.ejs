@@ -203,6 +203,18 @@ ID القناة:
 <br>
 📌 الحالة: <%= g.status %>
 
+<br>
+🏆 الفائزون:
+<%
+let gw = winners.filter(w => w.giveaway_id === g.id);
+%>
+
+<% if(gw.length){ %>
+<%= gw.map(w => `<@${w.user_id}>`).join(", ") %>
+<% } else { %>
+لا يوجد
+<% } %>
+
 <br><br>
 
 <a href="/dashboard/<%= guildId %>/giveaways/delete/<%= g.id %>">

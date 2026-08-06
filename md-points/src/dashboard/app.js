@@ -92,7 +92,18 @@ app.get("/dashboard/:guildId", (req,res)=>{
   db.get("SELECT * FROM settings WHERE guild_id=?", [guildId], (err, settings)=>{
     db.get("SELECT * FROM currencies WHERE guild_id=? LIMIT 1", [guildId], (err, currency)=>{
       db.all("SELECT * FROM shop_items WHERE guild_id=?", [guildId], (err, items)=>{
-        db.all("SELECT * FROM giveaways WHERE guild_id=? ORDER BY id DESC", [guildId], (err, giveaways) => { res.render("dashboard", {guildId, settings, currency, items, giveaways}); });
+        db.all("SELECT * FROM giveaways WHERE guild_id=? ORDER BY id DESC", [guildId], (err, giveaways) => {
+          db.all("SELECT * FROM giveaway_winners", [], (e, winners) => {
+            res.render("dashboard", {
+              guildId,
+              settings,
+              currency,
+              items,
+              giveaways,
+              winners: winners || []
+            });
+          });
+        });
       });
     });
   });
