@@ -194,48 +194,9 @@ app.post("/dashboard/:guildId", (req,res)=>{
    }
 
    console.log("Rows updated:", this.changes);
-
-   const giveawayId = this.lastID;
-
-   const client = req.app.get("client");
-
-   if(client && channel_id){
-
-     client.channels.fetch(channel_id)
-     .then(channel => {
-
-       const row = new ActionRowBuilder()
-       .addComponents(
-         new ButtonBuilder()
-         .setCustomId(`join_giveaway_${giveawayId}`)
-         .setLabel("🎉 مشاركة")
-         .setStyle(ButtonStyle.Primary)
-       );
-
-       channel.send({
-         content:
-`🎁 **سحب جديد**
-
-📌 الاسم: ${name}
-
-🎁 الجائزة: ${prize}
-
-🏆 عدد الفائزين: ${winners_count}
-
-🎉 اضغط للمشاركة`,
-         components:[row]
-       });
-
-     })
-     .catch(err=>{
-       console.error("CHANNEL ERROR:", err.message);
-     });
-
-   }
-
-   res.redirect("/dashboard/"+guildId);
  }
  );
+
 
 });
 
@@ -408,7 +369,6 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
      return res.send("❌ خطأ أثناء إنشاء السحب");
    }
 
-   const client = req.app.get("client");
 
    console.log("CLIENT CHECK:", !!client, "CHANNEL:", channel_id);
 
@@ -417,7 +377,6 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
      client.channels.fetch(channel_id)
      .then(channel => {
 
-       const giveawayId = this.lastID;
 
        const message = {
          content:
@@ -546,7 +505,6 @@ app.post("/dashboard/:guildId/giveaways/edit/:id",(req,res)=>{
 app.get("/dashboard/:guildId/giveaways/reroll/:id",(req,res)=>{
 
  const {guildId,id}=req.params;
- const client = req.app.get("client");
 
  db.get(
   "SELECT * FROM giveaways WHERE id=? AND guild_id=?",
