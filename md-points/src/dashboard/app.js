@@ -531,4 +531,115 @@ app.post("/dashboard/:guildId/giveaways/edit/:id",(req,res)=>{
  );
 
 });
+
+
+app.get("/dashboard/:guildId/giveaways/reroll/:id",(req,res)=>{
+
+ const {guildId,id}=req.params;
+ const client = req.app.get("client");
+
+ db.get(
+  "SELECT * FROM giveaways WHERE id=? AND guild_id=?",
+  [id,guildId],
+  async (err,g)=>{
+
+   if(!g) return res.send("السحب غير موجود");
+
+   let users=[];
+
+   if(g.type==="forced"){
+
+    try{
+
+     const guild = await client.guilds.fetch(g.guild_id);
+     const members = guild.members.cache;
+
+     users = [...members.values()]
+      .filter(m=>m.roles.cache.has(g.role_id))
+      .map(m=>m.id);
+
+    }catch(e){
+     console.error("REROLL MEMBERS ERROR:", e);
+     return res.send("خطأ بجلب الأعضاء");
+    }
+
+   }else{
+
+    db.all(
+     "SELECT user_id FROM giveaway_entries WHERE giveaway_id=?",
+     [id],
+     (e,rows)=>{
+
+      users = rows.map(x=>x.user_id);
+
+     }
+    );
+
+   }
+
+
+   db.all(
+    "SELECT user_id FROM giveaway_winners WHERE giveaway_id=?",
+    [id],
+    (e,old)=>{
+
+     console.log("REROLL BEFORE FILTER:", users.length);
+     const oldIds=(old||[]).map(x=>x.user_id);
+
+     users=users.filter(u=>u !== oldIds[oldIds.length - 1]);
+     console.log("REROLL AFTER FILTER:", users.length);
+
+     if(!users.length)
+       return res.send("لا يوجد مشاركين جدد");
+
+
+     const winner=users[Math.floor(Math.random()*users.length)];
+
+
+     db.run(
+      "DELETE FROM giveaway_winners WHERE giveaway_id=?",
+      [id],
+      ()=>{
+
+       db.run(
+        "INSERT INTO giveaway_winners (giveaway_id,user_id,created_at) VALUES (?,?,?)",
+        [id,winner,Date.now()],
+        async ()=>{
+       
+       const channel = await client.channels.fetch(g.channel_id).catch(e=>{
+        console.error("REROLL CHANNEL ERROR:", e.message);
+        return null;
+       });
+
+       console.log("REROLL CHANNEL:", !!channel);
+
+       if(channel){
+        channel.send(
+`🔄 **تم إعادة السحب**
+
+🎁 الجائزة: ${g.prize}
+
+🏆 الفائز الجديد:
+<@${winner}>`
+        ).catch(e=>{
+          console.error("REROLL SEND ERROR:", e.message);
+        });
+       }
+
+       res.redirect("/dashboard/"+guildId);
+        }
+       );
+      }
+
+     );
+
+    }
+   );
+
+  }
+ );
+
+});
+
+
 module.exports = app;
