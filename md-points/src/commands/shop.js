@@ -7,7 +7,6 @@ module.exports = {
     .setDescription("عرض متجر السيرفر"),
 
   async execute(interaction) {
-    console.log("START", interaction.commandName, interaction.user.id);
     await interaction.deferReply();
 
     const guildId = interaction.guild.id;
@@ -17,10 +16,10 @@ module.exports = {
       [guildId],
       async (err, items) => {
 
-        if (err) { console.error(err);
+        if (err) {
+          console.error(err);
           return interaction.editReply({
-            content: "خطأ في قاعدة البيانات",
-            ephemeral: true
+            content: "خطأ في قاعدة البيانات"
           });
         }
 
@@ -30,26 +29,30 @@ module.exports = {
 
         let text = "🛒 **متجر السيرفر**\n\n";
         const rows = [];
+        let currentRow = new ActionRowBuilder();
 
-        items.forEach(item => {
+        items.forEach((item, index) => {
 
           text +=
-          `📦 **${item.name}**\n` +
-          `💰 السعر: ${item.price} 🪙\n` +
-          `🎁 النوع: ${item.type}\n\n`;
+            `📦 **${item.name}**\n` +
+            `💰 السعر: ${item.price} 🪙\n` +
+            `🎁 النوع: ${item.type}\n\n`;
 
-          rows.push(
-            new ActionRowBuilder().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`buy_${item.id}`)
-                .setLabel(`شراء ${item.name}`)
-                .setStyle(ButtonStyle.Success)
-            )
+          currentRow.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`buy_${item.id}`)
+              .setLabel(item.name.length > 20 ? item.name.slice(0, 20) : item.name)
+              .setStyle(ButtonStyle.Success)
           );
+
+          if (currentRow.components.length === 5 || index === items.length - 1) {
+            rows.push(currentRow);
+            currentRow = new ActionRowBuilder();
+          }
 
         });
 
-        interaction.editReply({
+        await interaction.editReply({
           content: text,
           components: rows
         });
