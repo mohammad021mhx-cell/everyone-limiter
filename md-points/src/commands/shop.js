@@ -7,6 +7,8 @@ module.exports = {
     .setDescription("عرض متجر السيرفر"),
 
   async execute(interaction) {
+    console.log("START", interaction.commandName, interaction.user.id);
+    await interaction.deferReply();
 
     const guildId = interaction.guild.id;
 
@@ -15,15 +17,15 @@ module.exports = {
       [guildId],
       async (err, items) => {
 
-        if (err) {
-          return interaction.reply({
+        if (err) { console.error(err);
+          return interaction.editReply({
             content: "خطأ في قاعدة البيانات",
             ephemeral: true
           });
         }
 
         if (!items.length) {
-          return interaction.reply("🛒 المتجر فارغ حالياً");
+          return interaction.editReply("🛒 المتجر فارغ حالياً");
         }
 
         let text = "🛒 **متجر السيرفر**\n\n";
@@ -47,7 +49,7 @@ module.exports = {
 
         });
 
-        interaction.reply({
+        interaction.editReply({
           content: text,
           components: rows
         });

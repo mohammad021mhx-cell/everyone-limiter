@@ -7,6 +7,8 @@ module.exports = {
     .setDescription("عرض رصيدك"),
 
   async execute(interaction) {
+    console.log("START", interaction.commandName, interaction.user.id);
+    await interaction.deferReply();
     const guildId = interaction.guild.id;
     const userId = interaction.user.id;
 
@@ -14,15 +16,15 @@ module.exports = {
       "SELECT * FROM users WHERE guild_id=? AND user_id=?",
       [guildId, userId],
       (err, user) => {
-        if (err) {
-          return interaction.reply({
+        if (err) { console.error(err);
+          return interaction.editReply({
             content: "خطأ في قاعدة البيانات",
             ephemeral: true
           });
         }
 
         if (!user) {
-          return interaction.reply("ليس لديك رصيد بعد");
+          return interaction.editReply("ليس لديك رصيد بعد");
         }
 
         db.get(
@@ -33,7 +35,7 @@ module.exports = {
             const name = currency?.name || "Points";
             const symbol = currency?.symbol || "⭐";
 
-            interaction.reply(
+            interaction.editReply(
 `${symbol} رصيدك: ${user.total_points} ${name}
 
 📝 من الرسائل: ${user.text_points}

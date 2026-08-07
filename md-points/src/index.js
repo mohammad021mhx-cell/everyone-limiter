@@ -254,6 +254,19 @@ client.on("interactionCreate", async interaction => {
             });
           }
 
+          db.get(
+            "SELECT * FROM users WHERE guild_id=? AND user_id=?",
+            [guildId, userId],
+            (err, user) => {
+
+              if (!user || user.total_points < item.price) {
+                return interaction.reply({
+                  content: "❌ رصيدك لا يكفي",
+                  ephemeral: true
+                });
+              }
+
+
           db.run(
             "UPDATE users SET total_points=total_points-? WHERE guild_id=? AND user_id=? AND total_points>=?",
             [item.price, guildId, userId, item.price],
@@ -331,6 +344,9 @@ components:[row]
             ephemeral: true
           });
 
+              }
+            );
+
         }
       );
 
@@ -339,8 +355,10 @@ components:[row]
     return;
   }
 
+  console.log("SLASH:", interaction.commandName, interaction.user.id);
   if (!interaction.isChatInputCommand()) return;
 
+  console.log("COMMAND:", interaction.commandName, interaction.user.tag);
   const command = client.commands.get(interaction.commandName);
 
   if (!command) return;

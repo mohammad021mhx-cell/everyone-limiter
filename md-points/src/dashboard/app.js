@@ -24,7 +24,7 @@ app.get("/settings/:guildId", (req, res) => {
         settings = {
           text_points: 1,
           voice_points: 1,
-          voice_interval: 600,
+          voice_interval: 10,
           voice_enabled: 1,
           min_message_length: 10,
           messages_required: 1

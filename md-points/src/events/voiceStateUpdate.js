@@ -25,7 +25,7 @@ module.exports = {
 
           if (!settings.voice_enabled) return;
 
-          const intervalTime = (settings.voice_interval || 600) * 1000;
+          const intervalTime = (settings.voice_interval || 10) * 60 * 1000;
 
           const timer = setInterval(() => {
 
