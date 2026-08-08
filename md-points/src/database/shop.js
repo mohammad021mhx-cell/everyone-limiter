@@ -2,13 +2,16 @@ const db = require("./connect");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS shop_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     guild_id TEXT NOT NULL,
     name TEXT NOT NULL,
     price INTEGER DEFAULT 0,
     type TEXT DEFAULT 'text',
     value TEXT,
-    enabled INTEGER DEFAULT 1
+    enabled INTEGER DEFAULT 1,
+    input_name TEXT DEFAULT '',
+    requires_input INTEGER DEFAULT 0,
+    stock INTEGER DEFAULT -1
   )
 `);
 

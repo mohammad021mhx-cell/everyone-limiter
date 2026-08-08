@@ -42,7 +42,8 @@ module.exports = function(client){
 
       try {
 
-        members = await guild.members.fetch();
+        // استخدم الأعضاء الموجودين بالكاش بدل طلب كل أعضاء السيرفر من Discord
+        members = guild.members.cache;
 
   
       } catch(err){
@@ -54,7 +55,81 @@ module.exports = function(client){
 
       users = members
       .filter(m => m.roles.cache.has(giveaway.role_id))
-      .map(m=>m.id);
+      .map(m => m.id);
+
+      // السحب الإجباري برسوم
+      const fee = Number(giveaway.entry_fee || 0);
+
+      if (fee > 0) {
+        const paidUsers = [];
+
+        for (const userId of users) {
+          try {
+            // لا تخصم من العضو أكثر من مرة
+            const existing = await new Promise(resolve => {
+              db.get(
+                "SELECT id FROM giveaway_entries WHERE giveaway_id=? AND user_id=?",
+                [giveaway.id, userId],
+                (e, row) => resolve(e ? null : row)
+              );
+            });
+
+            if (existing) {
+              paidUsers.push(userId);
+              continue;
+            }
+
+            const user = await new Promise(resolve => {
+              db.get(
+                "SELECT total_points FROM users WHERE guild_id=? AND user_id=?",
+                [giveaway.guild_id, userId],
+                (e, row) => resolve(e ? null : row)
+              );
+            });
+
+            const balance = Number(user?.total_points || 0);
+
+            if (balance < fee) {
+              continue;
+            }
+
+            const result = await new Promise(resolve => {
+              db.run(
+                `UPDATE users
+                 SET total_points = total_points - ?
+                 WHERE guild_id=? AND user_id=? AND total_points >= ?`,
+                [fee, giveaway.guild_id, userId, fee],
+                (e, r) => resolve(e ? null : r)
+              );
+            });
+
+            if (!result) continue;
+
+            await new Promise(resolve => {
+              db.run(
+                `INSERT INTO giveaway_entries
+                 (giveaway_id,user_id,joined_at)
+                 VALUES (?,?,?)
+                 ON CONFLICT (giveaway_id,user_id) DO NOTHING`,
+                [giveaway.id, userId, Date.now()],
+                () => resolve()
+              );
+            });
+
+            paidUsers.push(userId);
+
+          } catch (err) {
+            console.error(
+              "❌ FORCED GIVEAWAY FEE ERROR:",
+              giveaway.id,
+              userId,
+              err.message
+            );
+          }
+        }
+
+        users = paidUsers;
+      }
 
 
     } else {

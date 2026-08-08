@@ -17,16 +17,12 @@ module.exports = {
 
     const guildId = interaction.guild.id;
 
-    const staffCount = await new Promise((resolve) => {
-      db.get(
-        "SELECT COUNT(*) AS count FROM staff WHERE guild_id=?",
-        [guildId],
-        (err, row) => {
-          if (err) return resolve(0);
-          resolve(row.count);
-        }
-      );
-    });
+    const row = await db.get(
+      "SELECT COUNT(*) AS count FROM staff WHERE guild_id=?",
+      [guildId]
+    );
+
+    const staffCount = Number(row?.count || 0);
 
     if (staffCount > 0) {
       if (!(await checkStaffPermission(interaction))) return;
@@ -34,24 +30,24 @@ module.exports = {
 
     const member = interaction.options.getUser("member");
 
-    db.run(
-      "INSERT OR IGNORE INTO staff (guild_id,user_id) VALUES (?,?)",
-      [guildId, member.id],
-      function (err) {
+    try {
+      await db.run(
+        "INSERT INTO staff (guild_id,user_id) VALUES (?,?) ON CONFLICT (guild_id,user_id) DO NOTHING",
+        [guildId, member.id]
+      );
 
-        if (err) {
-          return interaction.reply({
-            content: "❌ حدث خطأ أثناء إضافة الموظف.",
-            ephemeral: true
-          });
-        }
+      await interaction.reply({
+        content: `✅ تم إضافة ${member} إلى الموظفين.`,
+        ephemeral: true
+      });
 
-        interaction.reply({
-          content: `✅ تم إضافة ${member} إلى الموظفين.`,
-          ephemeral: true
-        });
+    } catch (err) {
+      console.error(err);
 
-      }
-    );
+      await interaction.reply({
+        content: "❌ حدث خطأ أثناء إضافة الموظف.",
+        ephemeral: true
+      });
+    }
   }
 };

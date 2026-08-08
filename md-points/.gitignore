@@ -1,3 +1,10 @@
 node_modules
 .env
 logs
+
+*.db
+*.db-journal
+*.swp
+*.zip
+node_modules/
+.env

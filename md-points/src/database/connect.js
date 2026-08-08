@@ -1,22 +1,29 @@
-const Database = require("better-sqlite3");
-const path = require("path");
+const { Pool } = require("pg");
+require("dotenv").config();
 
-const sqlite = new Database(
-  path.join(__dirname, "../../database/database.db")
-);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: true
+  }
+});
 
-console.log("✅ تم الاتصال بقاعدة بيانات SQLite");
+console.log("✅ تم الاتصال بقاعدة بيانات PostgreSQL");
+
+function convertSQL(sql) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
 
 const db = {
-  prepare(sql) {
-    return sqlite.prepare(sql);
+
+  async exec(sql) {
+    return pool.query(sql);
   },
-  exec(sql) {
-    return sqlite.exec(sql);
-  },
-  run(sql, params = [], callback) {
+
+  async run(sql, params = [], callback) {
     try {
-      const result = sqlite.prepare(sql).run(...params);
+      const result = await pool.query(convertSQL(sql), params);
       if (callback) callback(null, result);
       return result;
     } catch (err) {
@@ -25,23 +32,30 @@ const db = {
     }
   },
 
-  get(sql, params = [], callback) {
+  async get(sql, params = [], callback) {
     try {
-      const result = sqlite.prepare(sql).get(...params);
-      if (callback) callback(null, result);
-      return result;
+      const result = await pool.query(convertSQL(sql), params);
+      const row = result.rows[0];
+
+      if (callback) callback(null, row);
+      return row;
+
     } catch (err) {
+      console.error(err);
       if (callback) callback(err);
       else throw err;
     }
   },
 
-  all(sql, params = [], callback) {
+  async all(sql, params = [], callback) {
     try {
-      const result = sqlite.prepare(sql).all(...params);
-      if (callback) callback(null, result);
-      return result;
+      const result = await pool.query(convertSQL(sql), params);
+
+      if (callback) callback(null, result.rows);
+      return result.rows;
+
     } catch (err) {
+      console.error(err);
       if (callback) callback(err);
       else throw err;
     }

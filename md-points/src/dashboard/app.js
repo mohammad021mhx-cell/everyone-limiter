@@ -343,13 +343,13 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
  } = req.body;
 
 
- const time = new Date(run_at + ":00+03:00").getTime();
+ const time = run_at ? new Date(run_at).getTime() : Date.now();
 
 
  db.run(
  `INSERT INTO giveaways
  (guild_id,name,prize,winners_count,role_id,channel_id,type,entry_fee,run_at,status,created_by)
- VALUES (?,?,?,?,?,?,?,?,?,'active',?)`,
+ VALUES (?,?,?,?,?,?,?,?,?,'active',?) RETURNING id`,
  [
    guildId,
    name,
@@ -362,63 +362,81 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
    time,
    guildId
  ],
- function(err){
+ async function(err, result){
 
    if(err){
      console.error(err);
      return res.send("❌ خطأ أثناء إنشاء السحب");
    }
 
+   const giveawayId = result.rows[0].id;
 
-   console.log("CLIENT CHECK:", !!client, "CHANNEL:", channel_id);
+   const client = req.app.get("client");
 
-   if(client && channel_id){
+   if(!client){
+     console.error("❌ CLIENT NOT AVAILABLE");
+     return res.status(500).send("❌ البوت غير متصل");
+   }
 
-     client.channels.fetch(channel_id)
-     .then(channel => {
+   if(!channel_id){
+     console.error("❌ CHANNEL ID MISSING");
+     return res.status(400).send("❌ لم يتم تحديد قناة السحب");
+   }
 
+   try {
+     const channel = await client.channels.fetch(channel_id);
 
-       const message = {
-         content:
+     if(!channel){
+       console.error("❌ CHANNEL NOT FOUND:", channel_id);
+       return res.status(404).send("❌ قناة السحب غير موجودة");
+     }
+
+     const fee = Number(entry_fee || 0);
+
+     const feeText = fee > 0
+       ? `
+
+💰 **رسوم المشاركة: ${fee} نقطة**
+⚠️ سيتم خصم **${fee} نقطة** من رصيدك عند المشاركة.`
+       : "";
+
+     const message = {
+       content:
 `🎁 **سحب جديد**
 
 📌 الاسم: ${name}
 
 🎁 الجائزة: ${prize}
 
-🏆 عدد الفائزين: ${winners_count}`
-       };
+🏆 عدد الفائزين: ${winners_count}${feeText}`
+     };
 
-       if(type !== "forced"){
-
-         const row = new ActionRowBuilder()
+     if(type !== "forced"){
+       const row = new ActionRowBuilder()
          .addComponents(
            new ButtonBuilder()
-           .setCustomId(`join_giveaway_${giveawayId}`)
-           .setLabel("🎉 مشاركة")
-           .setStyle(ButtonStyle.Primary)
+             .setCustomId(`join_giveaway_${giveawayId}`)
+             .setLabel("🎉 مشاركة")
+             .setStyle(ButtonStyle.Primary)
          );
 
-         message.components = [row];
-
-       } else {
-
-         message.content += `
+       message.components = [row];
+     } else {
+       message.content += `
 
 ⚡ سحب إجباري - سيتم اختيار الفائزين تلقائيًا من الرتبة المحددة`;
+     }
 
-       }
+     await channel.send(message);
 
-       channel.send(message);
+     console.log("✅ GIVEAWAY MESSAGE SENT:", giveawayId, channel_id);
 
-     })
-     .catch(err=>{
-       console.error("CHANNEL ERROR:", err.message);
-     });
+     return res.redirect("/dashboard/"+guildId);
 
+   } catch(err) {
+     console.error("❌ GIVEAWAY DISCORD ERROR:", err);
+     return res.status(500).send("❌ حدث خطأ أثناء إرسال السحب إلى Discord");
    }
-
-   res.redirect("/dashboard/"+guildId);
 
  });
 

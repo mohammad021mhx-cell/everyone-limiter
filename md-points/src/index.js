@@ -1,4 +1,5 @@
 require("dotenv").config();
+process.env.TZ = "Asia/Baghdad";
 
 const fs = require("fs");
 const path = require("path");
@@ -47,8 +48,28 @@ if (fs.existsSync(commandsPath)) {
   }
 }
 
-client.once("clientReady", () => {
+client.once("clientReady", async () => {
+  const db = require("./database/connect");
+
   console.log(`🤖 تم تسجيل الدخول باسم ${client.user.tag}`);
+  console.log("🌍 تجهيز إعدادات جميع السيرفرات...");
+
+  for (const guild of client.guilds.cache.values()) {
+    try {
+      await db.run(
+        `INSERT INTO settings
+         (guild_id, text_enabled, voice_enabled, text_points, voice_points,
+          voice_interval, message_cooldown, min_message_length, messages_required)
+         VALUES (?,1,1,1,1,1,60,3,30)
+         ON CONFLICT (guild_id) DO NOTHING`,
+        [guild.id]
+      );
+
+      console.log(`✅ SETTINGS OK: ${guild.name} (${guild.id})`);
+    } catch (err) {
+      console.error(`❌ SETTINGS ERROR ${guild.id}:`, err);
+    }
+  }
 });
 
 client.on(messageCreate.name, (...args) => messageCreate.execute(...args));
@@ -61,33 +82,187 @@ client.on("interactionCreate", async interaction => {
     if (interaction.customId.startsWith("join_giveaway_")) {
 
       const db = require("./database/connect");
-
       const giveawayId = interaction.customId.split("_")[2];
-      console.log("GIVEAWAY BUTTON:", interaction.customId, "ID:", giveawayId);
+      const guildId = interaction.guild.id;
+      const userId = interaction.user.id;
 
-      db.run(
-        "INSERT OR IGNORE INTO giveaway_entries (giveaway_id,user_id,joined_at) VALUES (?,?,?)",
-        [giveawayId, interaction.user.id, Date.now()],
-        function(err){
+      console.log(
+        "🎉 GIVEAWAY BUTTON:",
+        interaction.customId,
+        "ID:",
+        giveawayId,
+        "USER:",
+        userId
+      );
 
-          if(err){
+      db.get(
+        "SELECT * FROM giveaways WHERE id=? AND guild_id=?",
+        [giveawayId, guildId],
+        function(err, giveaway) {
+
+          if (err || !giveaway) {
+            console.error("❌ GIVEAWAY LOAD ERROR:", err);
+
             return interaction.reply({
-              content:"❌ حدث خطأ",
-              ephemeral:true
+              content: "❌ السحب غير موجود.",
+              ephemeral: true
             });
           }
 
-          if(this.changes === 0){
+          if (giveaway.status !== "active") {
             return interaction.reply({
-              content:"⚠️ أنت مشارك مسبقًا",
-              ephemeral:true
+              content: "❌ هذا السحب غير متاح للمشاركة حاليًا.",
+              ephemeral: true
             });
           }
 
-          interaction.reply({
-            content:"🎉 تم تسجيل مشاركتك في السحب",
-            ephemeral:true
-          });
+          db.get(
+            "SELECT id FROM giveaway_entries WHERE giveaway_id=? AND user_id=?",
+            [giveawayId, userId],
+            function(err, row) {
+
+              if (err) {
+                console.error("❌ GIVEAWAY ENTRY CHECK ERROR:", err);
+
+                return interaction.reply({
+                  content: "❌ حدث خطأ أثناء التحقق من مشاركتك.",
+                  ephemeral: true
+                });
+              }
+
+              if (row) {
+                return interaction.reply({
+                  content: "⚠️ أنت مسجل بالفعل في هذا السحب.",
+                  ephemeral: true
+                });
+              }
+
+              const fee = Number(giveaway.entry_fee || 0);
+
+              // السحب المدفوع
+              if (fee > 0) {
+
+                db.get(
+                  "SELECT total_points FROM users WHERE guild_id=? AND user_id=?",
+                  [guildId, userId],
+                  function(balanceErr, user) {
+
+                    if (balanceErr) {
+                      console.error("❌ GIVEAWAY BALANCE ERROR:", balanceErr);
+
+                      return interaction.reply({
+                        content: "❌ حدث خطأ أثناء فحص رصيدك.",
+                        ephemeral: true
+                      });
+                    }
+
+                    const balance = Number(user?.total_points || 0);
+
+                    if (balance < fee) {
+                      return interaction.reply({
+                        content:
+                          `❌ لا يمكنك المشاركة.
+` +
+                          `💰 رسوم المشاركة: **${fee} نقطة**
+` +
+                          `💳 رصيدك الحالي: **${balance} نقطة**`,
+                        ephemeral: true
+                      });
+                    }
+
+                    db.run(
+                      `UPDATE users
+                       SET total_points = total_points - ?
+                       WHERE guild_id=? AND user_id=? AND total_points >= ?`,
+                      [fee, guildId, userId, fee],
+                      function(updateErr) {
+
+                        if (updateErr) {
+                          console.error("❌ GIVEAWAY FEE ERROR:", updateErr);
+
+                          return interaction.reply({
+                            content: "❌ حدث خطأ أثناء خصم رسوم المشاركة.",
+                            ephemeral: true
+                          });
+                        }
+
+                        db.run(
+                          `INSERT INTO giveaway_entries
+                           (giveaway_id,user_id,joined_at)
+                           VALUES (?,?,?)
+                           ON CONFLICT (giveaway_id,user_id) DO NOTHING`,
+                          [giveawayId, userId, Date.now()],
+                          function(insertErr) {
+
+                            if (insertErr) {
+                              console.error(
+                                "❌ GIVEAWAY ENTRY INSERT ERROR:",
+                                insertErr
+                              );
+
+                              // إعادة النقاط إذا فشل تسجيل المشاركة
+                              db.run(
+                                `UPDATE users
+                                 SET total_points = total_points + ?
+                                 WHERE guild_id=? AND user_id=?`,
+                                [fee, guildId, userId]
+                              );
+
+                              return interaction.reply({
+                                content: "❌ حدث خطأ أثناء تسجيل مشاركتك وتمت إعادة نقاطك.",
+                                ephemeral: true
+                              });
+                            }
+
+                            return interaction.reply({
+                              content:
+                                `🎉 تم تسجيل مشاركتك في السحب.
+` +
+                                `💰 تم خصم **${fee} نقطة** من رصيدك.`,
+                              ephemeral: true
+                            });
+
+                          }
+                        );
+                      }
+                    );
+                  }
+                );
+
+                return;
+              }
+
+              // السحب المجاني
+              db.run(
+                `INSERT INTO giveaway_entries
+                 (giveaway_id,user_id,joined_at)
+                 VALUES (?,?,?)
+                 ON CONFLICT (giveaway_id,user_id) DO NOTHING`,
+                [giveawayId, userId, Date.now()],
+                function(insertErr) {
+
+                  if (insertErr) {
+                    console.error(
+                      "❌ GIVEAWAY ENTRY INSERT ERROR:",
+                      insertErr
+                    );
+
+                    return interaction.reply({
+                      content: "❌ حدث خطأ أثناء تسجيل مشاركتك.",
+                      ephemeral: true
+                    });
+                  }
+
+                  return interaction.reply({
+                    content: "🎉 تم تسجيل مشاركتك في السحب.",
+                    ephemeral: true
+                  });
+
+                }
+              );
+
+            }
+          );
 
         }
       );
@@ -245,7 +420,7 @@ client.on("interactionCreate", async interaction => {
         components:[]
       });
 
-      interaction.guild.members.fetch(userId).then(member=>{
+      Promise.resolve(interaction.guild.members.cache.get(userId)).then(member=>{
         member.send("❌ تم رفض طلبك وتمت إعادة نقاطك.").catch(()=>{});
       }).catch(()=>{});
 
@@ -397,10 +572,50 @@ components:[row]
   }
 });
 
+client.once("clientReady", async () => {
+  console.log("🎙️ فحص حالات الصوت...");
+
+  // ننتظر قليلًا حتى تكون حالات الصوت جاهزة في الكاش
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  let found = 0;
+
+  for (const guild of client.guilds.cache.values()) {
+    try {
+      for (const [userId, voiceState] of guild.voiceStates.cache) {
+
+        if (!voiceState.channel) continue;
+
+        const member = voiceState.member;
+
+        if (!member || member.user.bot) continue;
+
+        found++;
+
+        console.log(
+          "🎙️ VOICE MEMBER FOUND:",
+          member.id,
+          member.user.tag,
+          "CHANNEL:",
+          voiceState.channel.id
+        );
+
+        await voiceStateUpdate.startVoiceTimer(member);
+      }
+
+    } catch (err) {
+      console.error("VOICE STARTUP ERROR:", guild.id, err);
+    }
+  }
+
+  console.log(`🎙️ تم العثور على ${found} عضو داخل الرومات الصوتية`);
+});
+
 client.login(process.env.TOKEN);
 
 const dashboard = require("./dashboard/app");
 dashboard.set("client", client);
+dashboard.locals.client = client;
 
 dashboard.listen(process.env.PORT || 14053, "0.0.0.0", () => {
   console.log("🌐 Dashboard running on port 3000");
@@ -413,3 +628,53 @@ const runGiveaways = require("./giveawayRunner");
 setInterval(() => {
   runGiveaways(client);
 }, 60000);
+
+client.on("guildCreate", async (guild) => {
+  console.log(`🆕 دخل سيرفر جديد: ${guild.name} (${guild.id})`);
+
+  const db = require("./database/connect");
+
+  try {
+    await db.run(
+      `INSERT INTO settings
+       (guild_id, text_enabled, voice_enabled, text_points, voice_points,
+        voice_interval, message_cooldown, min_message_length, messages_required)
+       VALUES (?,1,1,1,1,1,60,3,30)
+       ON CONFLICT (guild_id) DO NOTHING`,
+      [guild.id]
+    );
+
+    console.log(`✅ تم تجهيز إعدادات السيرفر: ${guild.id}`);
+
+    // فحص أعضاء الرومات الصوتية من الـ cache فقط
+    // بدون guild.members.fetch() لتجنب Rate Limits
+    let found = 0;
+
+    for (const [userId, voiceState] of guild.voiceStates.cache) {
+      if (!voiceState.channel) continue;
+
+      const member = voiceState.member;
+
+      if (!member || member.user.bot) continue;
+
+      found++;
+
+      console.log(
+        "🎙️ NEW GUILD VOICE MEMBER:",
+        member.id,
+        member.user.tag,
+        "CHANNEL:",
+        voiceState.channel.id
+      );
+
+      voiceStateUpdate.startVoiceTimer(member);
+    }
+
+    console.log(
+      `🎙️ تم فحص السيرفر الجديد: ${found} عضو داخل الرومات الصوتية`
+    );
+
+  } catch (err) {
+    console.error("❌ GUILD INIT ERROR:", err);
+  }
+});
