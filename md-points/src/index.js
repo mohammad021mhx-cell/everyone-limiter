@@ -1,3 +1,4 @@
+const checkStaffPermission = require("./utils/checkStaffPermission");
 require("dotenv").config();
 process.env.TZ = "Asia/Baghdad";
 
@@ -329,10 +330,22 @@ client.on("interactionCreate", async interaction => {
                 });
               }
 
-              db.get(
-                "SELECT purchase_channel FROM settings WHERE guild_id=?",
-                [guildId],
-                async (err, settings) => {
+              db.run(
+                "UPDATE users SET total_points=total_points-? WHERE guild_id=? AND user_id=? AND total_points>=?",
+                [item.price, guildId, userId, item.price],
+                function(err) {
+
+                  if (err || this.changes === 0) {
+                    return interaction.reply({
+                      content: "❌ تعذر خصم النقاط، حاول مرة أخرى.",
+                      ephemeral: true
+                    });
+                  }
+
+                  db.get(
+                    "SELECT purchase_channel FROM settings WHERE guild_id=?",
+                    [guildId],
+                    async (err, settings) => {
                   if (!settings?.purchase_channel)
                     return interaction.reply({
                       content: "❌ لم يتم تحديد قناة الطلبات.",
@@ -376,6 +389,9 @@ client.on("interactionCreate", async interaction => {
                     content: "✅ تم إرسال طلبك للإدارة وبانتظار الموافقة.",
                     ephemeral: true
                   });
+                    }
+                  );
+
                 }
               );
 
@@ -388,8 +404,8 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.customId.startsWith("deliver_")) {
 
-      if (!interaction.member.permissions.has("Administrator"))
-        return interaction.reply({content:"❌ ليس لديك صلاحية",ephemeral:true});
+      if (!(await checkStaffPermission(interaction)))
+        return;
 
       await interaction.update({
         content: interaction.message.content + "\n\n✅ **تم التسليم**",
@@ -401,8 +417,8 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.customId.startsWith("reject_")) {
 
-      if (!interaction.member.permissions.has("Administrator"))
-        return interaction.reply({content:"❌ ليس لديك صلاحية",ephemeral:true});
+      if (!(await checkStaffPermission(interaction)))
+        return;
 
       const db=require("./database/connect");
 
@@ -447,7 +463,7 @@ client.on("interactionCreate", async interaction => {
         [itemId, guildId],
         (err, item) => {
 
-          if (!item) {
+          if (err || !item) {
             return interaction.reply({
               content: "❌ المنتج غير موجود",
               ephemeral: true
@@ -461,57 +477,99 @@ client.on("interactionCreate", async interaction => {
             });
           }
 
-          db.get(
-            "SELECT * FROM users WHERE guild_id=? AND user_id=?",
-            [guildId, userId],
-            (err, user) => {
+          db.run(
+            `UPDATE users
+             SET total_points = total_points - ?
+             WHERE guild_id=? AND user_id=? AND total_points >= ?`,
+            [item.price, guildId, userId, item.price],
+            function(err) {
 
-              if (!user || user.total_points < item.price) {
+              if (err || this.changes === 0) {
                 return interaction.reply({
-                  content: "❌ رصيدك لا يكفي",
+                  content: "❌ رصيدك لا يكفي أو تعذر خصم النقاط.",
                   ephemeral: true
                 });
               }
 
+              db.run(
+                `INSERT INTO purchases
+                (guild_id,user_id,item_id,item_name,price,user_input,created_at)
+                VALUES (?,?,?,?,?,?,?)`,
+                [
+                  guildId,
+                  userId,
+                  item.id,
+                  item.name,
+                  item.price,
+                  userInput,
+                  Date.now()
+                ],
+                (err) => {
 
-          
-          db.run(
-            `INSERT INTO purchases
-            (guild_id,user_id,item_id,item_name,price,user_input,created_at)
-            VALUES (?,?,?,?,?,?,?)`,
-            [
-              guildId,
-              userId,
-              item.id,
-              item.name,
-              item.price,
-              userInput,
-              Date.now()
-            ]
-          );
+                  if (err) {
+                    console.error("❌ PURCHASE INSERT ERROR:", err);
 
-          db.get(
-            "SELECT purchase_channel FROM settings WHERE guild_id=?",
-            [guildId],
-            async (err, settings) => {
-              if (settings?.purchase_channel) {
-                const channel = interaction.guild.channels.cache.get(settings.purchase_channel);
+                    // إذا فشل تسجيل الطلب، نرجع النقاط التي تم خصمها
+                    db.run(
+                      "UPDATE users SET total_points=total_points+? WHERE guild_id=? AND user_id=?",
+                      [item.price, guildId, userId]
+                    );
 
-                if (channel) {
-                  const row = new ActionRowBuilder().addComponents(
-new ButtonBuilder()
-.setCustomId(`deliver_${userId}_${item.id}_${item.price}`)
-.setLabel("✅ تم التسليم")
-.setStyle(ButtonStyle.Success),
+                    return interaction.reply({
+                      content: "❌ حدث خطأ أثناء تسجيل الطلب وتمت إعادة النقاط.",
+                      ephemeral: true
+                    });
+                  }
 
-new ButtonBuilder()
-.setCustomId(`reject_${userId}_${item.id}_${item.price}`)
-.setLabel("❌ رفض")
-.setStyle(ButtonStyle.Danger)
-);
+                  db.get(
+                    "SELECT purchase_channel FROM settings WHERE guild_id=?",
+                    [guildId],
+                    async (err, settings) => {
 
-channel.send({
-content:`🛒 **طلب شراء جديد**
+                      if (!settings?.purchase_channel) {
+                        db.run(
+                          "UPDATE users SET total_points=total_points+? WHERE guild_id=? AND user_id=?",
+                          [item.price, guildId, userId]
+                        );
+
+                        return interaction.reply({
+                          content: "❌ لم يتم تحديد قناة الطلبات وتمت إعادة النقاط.",
+                          ephemeral: true
+                        });
+                      }
+
+                      const channel = interaction.guild.channels.cache.get(
+                        settings.purchase_channel
+                      );
+
+                      if (!channel) {
+                        db.run(
+                          "UPDATE users SET total_points=total_points+? WHERE guild_id=? AND user_id=?",
+                          [item.price, guildId, userId]
+                        );
+
+                        return interaction.reply({
+                          content: "❌ قناة الطلبات غير موجودة وتمت إعادة النقاط.",
+                          ephemeral: true
+                        });
+                      }
+
+                      const row = new ActionRowBuilder().addComponents(
+
+                        new ButtonBuilder()
+                          .setCustomId(`deliver_${userId}_${item.id}_${item.price}`)
+                          .setLabel("✅ تم التسليم")
+                          .setStyle(ButtonStyle.Success),
+
+                        new ButtonBuilder()
+                          .setCustomId(`reject_${userId}_${item.id}_${item.price}`)
+                          .setLabel("❌ رفض")
+                          .setStyle(ButtonStyle.Danger)
+
+                      );
+
+                      await channel.send({
+                        content: `🛒 **طلب شراء جديد**
 
 👤 العضو: <@${userId}>
 🆔 ID: ${userId}
@@ -523,24 +581,29 @@ content:`🛒 **طلب شراء جديد**
 ${userInput}
 
 🟡 الحالة: قيد المراجعة`,
-components:[row]
-}).catch(console.error);
-                }
-              }
-            }
-          );
+                        components: [row]
+                      });
 
-          interaction.reply({
-            content:
+                      return interaction.reply({
+                        content:
 `✅ تم تسجيل طلبك
 
 📦 المنتج: ${item.name}
-📝 ${item.input_name}: ${userInput}`,
-            ephemeral: true
-          });
+💰 تم خصم: ${item.price} نقطة
+📝 ${item.input_name || "المعلومات"}: ${userInput}
 
-              }
-            );
+🟡 الطلب بانتظار مراجعة الإدارة.`,
+                        ephemeral: true
+                      });
+
+                    }
+                  );
+
+                }
+              );
+
+            }
+          );
 
         }
       );
@@ -617,7 +680,7 @@ const dashboard = require("./dashboard/app");
 dashboard.set("client", client);
 dashboard.locals.client = client;
 
-dashboard.listen(process.env.PORT || 14053, "0.0.0.0", () => {
+dashboard.listen(15719, "0.0.0.0", () => {
   console.log("🌐 Dashboard running on port 3000");
 });
 

@@ -10,6 +10,8 @@ module.exports = {
     console.log("START balance", interaction.user.id);
 
     try {
+      await interaction.deferReply();
+
       const guildId = interaction.guild.id;
       const userId = interaction.user.id;
 
@@ -19,10 +21,7 @@ module.exports = {
       );
 
       if (!user) {
-        return await interaction.reply({
-          content: "ليس لديك رصيد بعد",
-          flags: MessageFlags.Ephemeral
-        });
+        return interaction.editReply("ليس لديك رصيد بعد");
       }
 
       const currency = await db.get(
@@ -33,23 +32,18 @@ module.exports = {
       const name = currency?.name || "Points";
       const symbol = currency?.symbol || "⭐";
 
-      await interaction.reply({
-        content:
+      await interaction.editReply(
 `${symbol} رصيدك: ${user.total_points} ${name}
 
 📝 من الرسائل: ${user.text_points}
-🎙️ من الصوت: ${user.voice_points}`,
-        flags: MessageFlags.Ephemeral
-      });
+🎙️ من الصوت: ${user.voice_points}`
+      );
 
     } catch (error) {
       console.error("BALANCE ERROR:", error);
 
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: "حدث خطأ أثناء عرض الرصيد",
-          flags: MessageFlags.Ephemeral
-        }).catch(() => {});
+      if (interaction.deferred && !interaction.replied) {
+        await interaction.editReply("حدث خطأ أثناء عرض الرصيد").catch(() => {});
       }
     }
   }
