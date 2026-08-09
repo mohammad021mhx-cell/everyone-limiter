@@ -5,6 +5,18 @@ const db = require("../database/connect");
 const app = express();
 app.use(require("./session"));
 
+function dashboardAuth(req, res, next) {
+  if (req.session && req.session.userId) {
+    return next();
+  }
+
+  return res.redirect("/login");
+}
+
+app.use("/dashboard", dashboardAuth);
+app.use("/settings", dashboardAuth);
+app.use("/shop", dashboardAuth);
+
 app.use(express.urlencoded({ extended: true }));
 app.set("view engine", "ejs");
 app.set("views", "./views");
@@ -276,14 +288,49 @@ app.post("/dashboard/:guildId/shop/edit/:id", (req,res)=>{
  );
 });
 
-app.get("/login/:userId", (req,res)=>{
+app.get("/login", (req, res) => {
+  if (req.session && req.session.userId) {
+    return res.redirect("/");
+  }
+
+  res.send(`
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>MD Points - Login</title>
+    </head>
+    <body style="font-family:Arial;text-align:center;padding:60px">
+      <h2>🔒 MD Points Dashboard</h2>
+
+      <form action="/login/check" method="GET">
+        <input
+          type="password"
+          name="code"
+          placeholder="رمز الدخول"
+          required
+          style="padding:12px"
+        >
+
+        <button type="submit" style="padding:12px">
+          🔓 دخول
+        </button>
+      </form>
+    </body>
+    </html>
+  `);
+});
+
+app.get("/login/check", (req, res) => {
   const code = req.query.code;
 
-  if(code !== process.env.DASHBOARD_CODE){
-    return res.send("❌ رمز القفل غير صحيح");
+  if (code !== process.env.DASHBOARD_CODE) {
+    return res.status(401).send("❌ رمز القفل غير صحيح");
   }
-  req.session.userId = req.params.userId;
-  res.send("✅ تم تسجيل الدخول للداشبورد");
+
+  req.session.userId = "dashboard-user";
+
+  res.redirect("/dashboard/1501492672781877339");
 });
 
 app.get("/logout",(req,res)=>{
