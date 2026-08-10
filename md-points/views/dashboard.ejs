@@ -10,7 +10,7 @@
 <h1>🤖 MD Points Dashboard</h1>
 
 
-<form method="POST" action="/settings/<%= guildId %>">
+<form method="POST" action="/dashboard/<%= guildId %>">
 
 <h2>📝 إعدادات الرسائل</h2>
 
@@ -85,6 +85,11 @@
 
 القيمة:
 <input name="value">
+
+<br><br>
+
+رتبة الشراء المطلوبة (اختياري):
+<input name="required_role_id" placeholder="ID الرتبة">
 
 <br><br>
 

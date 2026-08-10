@@ -5,12 +5,27 @@ const db = require("../database/connect");
 const app = express();
 app.use(require("./session"));
 
+const DASHBOARD_SESSION_TIMEOUT = 10 * 60 * 1000;
+
 function dashboardAuth(req, res, next) {
-  if (req.session && req.session.userId) {
-    return next();
+  if (!req.session || !req.session.userId) {
+    return res.redirect("/login");
   }
 
-  return res.redirect("/login");
+  const now = Date.now();
+
+  if (
+    req.session.lastActivity &&
+    now - req.session.lastActivity > DASHBOARD_SESSION_TIMEOUT
+  ) {
+    return req.session.destroy(() => {
+      res.redirect("/login");
+    });
+  }
+
+  req.session.lastActivity = now;
+
+  next();
 }
 
 app.use("/dashboard", dashboardAuth);
@@ -167,59 +182,158 @@ app.post("/shop/:guildId", (req,res)=>{
 
   res.redirect("/shop/"+guildId);
 });
-app.post("/dashboard/:guildId", (req,res)=>{
- const guildId=req.params.guildId;
+app.post("/dashboard/:guildId", async (req, res) => {
+  const guildId = req.params.guildId;
 
- const {
- text_points,
- voice_points,
- voice_interval,
- min_message_length,
- messages_required,
- purchase_channel
- }=req.body;
+  const {
+    text_points,
+    voice_points,
+    voice_interval,
+    min_message_length,
+    messages_required,
+    purchase_channel
+  } = req.body;
 
- console.log(req.body);
+  console.log("BODY:", req.body);
 
- db.run(
- `UPDATE settings SET
- text_points=?,
- voice_points=?,
- voice_interval=?,
- min_message_length=?,
- messages_required=?,
- purchase_channel=?
- WHERE guild_id=?`,
- [
- text_points,
- voice_points,
- voice_interval,
- min_message_length,
- messages_required,
- purchase_channel,
- guildId
- ],
- function(err){
-   if(err){
-     console.error("UPDATE ERROR:", err);
-     return res.status(500).send(err.message);
-   }
+  try {
+    const newInterval = Number(voice_interval || 0);
 
-   console.log("Rows updated:", this.changes);
- }
- );
+    if (newInterval <= 0) {
+      return res.status(400).send(
+        "voice_interval must be greater than 0"
+      );
+    }
+
+    /*
+     * قراءة الإعداد القديم قبل التعديل.
+     */
+
+    const oldSettings = await db.get(
+      `SELECT voice_interval
+       FROM settings
+       WHERE guild_id=?`,
+      [guildId]
+    );
 
 
+    const oldInterval =
+      Number(oldSettings?.voice_interval || 0);
+
+
+    console.log(
+      "OLD INTERVAL:",
+      oldInterval,
+      "NEW INTERVAL:",
+      newInterval
+    );
+
+    /*
+     * حفظ الإعدادات الجديدة.
+     */
+    await db.run(
+      `UPDATE settings SET
+        text_points=?,
+        voice_points=?,
+        voice_interval=?,
+        min_message_length=?,
+        messages_required=?,
+        purchase_channel=?
+       WHERE guild_id=?`,
+      [
+        Number(text_points || 0),
+        Number(voice_points || 0),
+        newInterval,
+        Number(min_message_length || 0),
+        Number(messages_required || 0),
+        purchase_channel || null,
+        guildId
+      ]
+    );
+
+    console.log(
+      "SETTINGS UPDATED:",
+      guildId,
+      `${oldInterval} -> ${newInterval} MIN`
+    );
+
+    /*
+     * إذا تغيرت مدة الصوت:
+     *
+     * 1. نحذف كل الوقت المتراكم.
+     * 2. نبدأ جلسة جديدة من الآن.
+     * 3. نحفظ المدة الجديدة.
+     *
+     * لا يتم تحويل الوقت القديم إلى نقاط.
+     */
+    if (
+      oldInterval > 0 &&
+      oldInterval !== newInterval
+    ) {
+      const now = Date.now();
+
+      const result = await db.run(
+        `UPDATE users
+         SET
+           voice_started_at=?,
+           voice_accumulated=0,
+           voice_interval_minutes=?
+         WHERE guild_id=?`,
+        [
+          now,
+          newInterval,
+          guildId
+        ]
+      );
+
+      console.log(
+        "🎙️ ALL VOICE SESSIONS RESET:",
+        guildId,
+        "USERS:",
+        result?.rowCount ?? 0,
+        `${oldInterval} -> ${newInterval} MIN`,
+        "OLD TIME DISCARDED"
+      );
+    }
+
+    return res.redirect(
+      "/dashboard/" + guildId
+    );
+
+  } catch (err) {
+    console.error(
+      "❌ DASHBOARD SETTINGS ERROR:",
+      err
+    );
+
+    return res
+      .status(500)
+      .send(
+        err.message ||
+        "Dashboard settings error"
+      );
+  }
 });
 
 app.post("/dashboard/:guildId/shop", (req,res)=>{
  const guildId=req.params.guildId;
- const {name,price,type,value}=req.body;
+ const {name,price,type,value,required_role_id}=req.body;
  console.log("SHOP DATA:", req.body);
  db.run(
- `INSERT INTO shop_items (guild_id,name,price,type,value,requires_input,input_name,stock)
- VALUES (?,?,?,?,?,?,?,?)`,
- [guildId,name,price,type,value,req.body.requires_input ? 1 : 0,req.body.input_name || "",req.body.stock || -1],
+ `INSERT INTO shop_items
+  (guild_id,name,price,type,value,requires_input,input_name,stock,required_role_id)
+  VALUES (?,?,?,?,?,?,?,?,?)`,
+ [
+   guildId,
+   name,
+   price,
+   type,
+   value,
+   req.body.requires_input ? 1 : 0,
+   req.body.input_name || "",
+   req.body.stock === "" || req.body.stock == null ? -1 : Number(req.body.stock),
+   required_role_id || null
+ ],
  ()=>{
    res.redirect("/dashboard/"+guildId);
  }
@@ -328,9 +442,24 @@ app.get("/login/check", (req, res) => {
     return res.status(401).send("❌ رمز القفل غير صحيح");
   }
 
-  req.session.userId = "dashboard-user";
+  req.session.regenerate(err => {
+    if (err) {
+      console.error("SESSION REGENERATE ERROR:", err);
+      return res.status(500).send("❌ حدث خطأ أثناء إنشاء جلسة الدخول");
+    }
 
-  res.redirect("/dashboard/1501492672781877339");
+    req.session.userId = "dashboard-user";
+    req.session.lastActivity = Date.now();
+
+    req.session.save(saveErr => {
+      if (saveErr) {
+        console.error("SESSION SAVE ERROR:", saveErr);
+        return res.status(500).send("❌ حدث خطأ أثناء حفظ جلسة الدخول");
+      }
+
+      res.redirect("/dashboard/1501492672781877339");
+    });
+  });
 });
 
 app.get("/logout",(req,res)=>{
