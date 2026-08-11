@@ -1,9 +1,11 @@
 const express = require("express");
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const db = require("../database/connect");
+const dashboardProtect = require("./protect");
 
 const app = express();
 app.use(require("./session"));
+app.use(require("./oauth"));
 
 const DASHBOARD_SESSION_TIMEOUT = 10 * 60 * 1000;
 
@@ -28,19 +30,154 @@ function dashboardAuth(req, res, next) {
   next();
 }
 
-app.use("/dashboard", dashboardAuth);
-app.use("/settings", dashboardAuth);
-app.use("/shop", dashboardAuth);
+
+app.use("/dashboard/:guildId", dashboardAuth, dashboardProtect);
+app.use("/settings/:guildId", dashboardAuth, dashboardProtect);
+app.use("/shop/:guildId", dashboardAuth, dashboardProtect);
 
 app.use(express.urlencoded({ extended: true }));
 app.set("view engine", "ejs");
 app.set("views", "./views");
 
-app.get("/", (req, res) => {
-  res.send("MD Points Dashboard Online");
+async function checkDashboardGuildAccess(req, res, next) {
+  const guildId = req.params.guildId;
+
+  if (!req.session || !req.session.userId || !req.session.accessToken) {
+    return res.redirect("/login");
+  }
+
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/users/@me/guilds`,
+      {
+        headers: {
+          Authorization: `Bearer ${req.session.accessToken}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(401).send("❌ انتهت جلسة Discord، سجل الدخول مرة ثانية.");
+    }
+
+    const guilds = await response.json();
+    const guild = guilds.find(g => g.id === guildId);
+
+    if (!guild) {
+      return res.status(403).send("❌ ليس لديك صلاحية للوصول إلى هذا السيرفر.");
+    }
+
+    const permissions = BigInt(guild.permissions || "0");
+    const ADMINISTRATOR = 0x8n;
+
+    if (!guild.owner && (permissions & ADMINISTRATOR) !== ADMINISTRATOR) {
+      return res.status(403).send("❌ تحتاج إلى صلاحية Administrator.");
+    }
+
+    next();
+
+  } catch (err) {
+    console.error("DASHBOARD ACCESS ERROR:", err);
+    return res.status(500).send("❌ حدث خطأ أثناء التحقق من صلاحيات السيرفر.");
+  }
+}
+
+
+app.get("/", async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.redirect("/login");
+  }
+
+  try {
+    const response = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: {
+        Authorization: `Bearer ${req.session.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(401).send("❌ انتهت جلسة Discord، سجل الدخول مرة ثانية.");
+    }
+
+    const guilds = await response.json();
+
+    const manageableGuilds = guilds.filter(guild => {
+      const permissions = BigInt(guild.permissions || "0");
+      const ADMINISTRATOR = 0x8n;
+      return guild.owner || (permissions & ADMINISTRATOR) === ADMINISTRATOR;
+    });
+
+    const client = app.get("client");
+
+    const cards = manageableGuilds.map(guild => {
+      const botGuild = client.guilds.cache.get(guild.id);
+
+      const icon = guild.icon
+        ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`
+        : "https://cdn.discordapp.com/embed/avatars/0.png";
+
+      if (botGuild) {
+        return `
+          <div style="border:1px solid #ddd;border-radius:12px;padding:15px;margin:10px;background:#fff">
+            <img src="${icon}" width="64" height="64" style="border-radius:50%">
+            <h3>${guild.name}</h3>
+            <p>🟢 البوت موجود في السيرفر</p>
+            <a href="/dashboard/${guild.id}"
+               style="display:inline-block;padding:10px 18px;background:#5865F2;color:white;text-decoration:none;border-radius:8px">
+              ⚙️ دخول للوحة التحكم
+            </a>
+          </div>
+        `;
+      }
+
+      const inviteUrl =
+        `https://discord.com/oauth2/authorize?client_id=${process.env.CLIENT_ID}` +
+        `&scope=bot%20applications.commands` +
+        `&permissions=8` +
+        `&guild_id=${guild.id}`;
+
+      return `
+        <div style="border:1px solid #ddd;border-radius:12px;padding:15px;margin:10px;background:#fff">
+          <img src="${icon}" width="64" height="64" style="border-radius:50%">
+          <h3>${guild.name}</h3>
+          <p>🔴 البوت غير موجود في السيرفر</p>
+          <a href="${inviteUrl}"
+             style="display:inline-block;padding:10px 18px;background:#57F287;color:white;text-decoration:none;border-radius:8px">
+            ➕ إضافة البوت
+          </a>
+        </div>
+      `;
+    }).join("");
+
+    res.send(`
+      <!DOCTYPE html>
+      <html dir="rtl">
+      <head>
+        <meta charset="UTF-8">
+        <title>MD Points - السيرفرات</title>
+      </head>
+      <body style="font-family:Arial;background:#f5f5f5;padding:30px">
+        <div style="max-width:900px;margin:auto">
+          <h1>🤖 MD Points</h1>
+          <h2>اختر السيرفر الذي تريد التحكم به</h2>
+          <p>مرحبًا <b>${req.session.username || ""}</b></p>
+
+          ${cards || "<p>❌ لا يوجد لديك سيرفرات يمكنك التحكم بها.</p>"}
+
+          <br>
+          <a href="/logout">🚪 تسجيل الخروج</a>
+        </div>
+      </body>
+      </html>
+    `);
+
+  } catch (err) {
+    console.error("GUILDS PAGE ERROR:", err);
+    res.status(500).send("❌ حدث خطأ أثناء جلب السيرفرات.");
+  }
 });
 
-app.get("/settings/:guildId", (req, res) => {
+app.get("/settings/:guildId", dashboardAuth, checkDashboardGuildAccess, (req, res) => {
   const guildId = req.params.guildId;
 
   db.get(
@@ -113,7 +250,7 @@ app.post("/settings/:guildId", (req, res) => {
   res.send("✅ تم حفظ الإعدادات");
 });
 
-app.get("/dashboard/:guildId", (req,res)=>{
+app.get("/dashboard/:guildId", dashboardAuth, checkDashboardGuildAccess, async (req,res)=>{
   const guildId = req.params.guildId;
 
   db.get("SELECT * FROM settings WHERE guild_id=?", [guildId], (err, settings)=>{
@@ -147,7 +284,7 @@ app.get("/dashboard/:guildId", (req,res)=>{
 
 
 
-app.get("/shop/:guildId", (req,res)=>{
+app.get("/shop/:guildId", dashboardAuth, checkDashboardGuildAccess, (req,res)=>{
   const guildId = req.params.guildId;
 
   db.all(
@@ -334,7 +471,13 @@ app.post("/dashboard/:guildId/shop", (req,res)=>{
    req.body.stock === "" || req.body.stock == null ? -1 : Number(req.body.stock),
    required_role_id || null
  ],
- ()=>{
+ (err)=>{
+   if (err) {
+     console.error("❌ SHOP INSERT ERROR:", err);
+     return res.status(500).send("❌ فشل حفظ الصنف: " + err.message);
+   }
+
+   console.log("✅ SHOP ITEM SAVED:", guildId, name);
    res.redirect("/dashboard/"+guildId);
  }
  );
@@ -415,51 +558,15 @@ app.get("/login", (req, res) => {
       <title>MD Points - Login</title>
     </head>
     <body style="font-family:Arial;text-align:center;padding:60px">
-      <h2>🔒 MD Points Dashboard</h2>
-
-      <form action="/login/check" method="GET">
-        <input
-          type="password"
-          name="code"
-          placeholder="رمز الدخول"
-          required
-          style="padding:12px"
-        >
-
-        <button type="submit" style="padding:12px">
-          🔓 دخول
-        </button>
-      </form>
+      <h2>🔐 MD Points Dashboard</h2>
+      <p>سجل الدخول بحساب Discord للتحكم بالبوت.</p>
+      <a href="/auth/discord"
+         style="display:inline-block;padding:14px 25px;background:#5865F2;color:white;text-decoration:none;border-radius:8px">
+        🔵 تسجيل الدخول عبر Discord
+      </a>
     </body>
     </html>
   `);
-});
-
-app.get("/login/check", (req, res) => {
-  const code = req.query.code;
-
-  if (code !== process.env.DASHBOARD_CODE) {
-    return res.status(401).send("❌ رمز القفل غير صحيح");
-  }
-
-  req.session.regenerate(err => {
-    if (err) {
-      console.error("SESSION REGENERATE ERROR:", err);
-      return res.status(500).send("❌ حدث خطأ أثناء إنشاء جلسة الدخول");
-    }
-
-    req.session.userId = "dashboard-user";
-    req.session.lastActivity = Date.now();
-
-    req.session.save(saveErr => {
-      if (saveErr) {
-        console.error("SESSION SAVE ERROR:", saveErr);
-        return res.status(500).send("❌ حدث خطأ أثناء حفظ جلسة الدخول");
-      }
-
-      res.redirect("/dashboard/1501492672781877339");
-    });
-  });
 });
 
 app.get("/logout",(req,res)=>{
@@ -469,7 +576,7 @@ app.get("/logout",(req,res)=>{
 });
 
 
-app.get("/dashboard/:guildId/giveaways", (req, res) => {
+app.get("/dashboard/:guildId/giveaways", dashboardAuth, checkDashboardGuildAccess, (req, res) => {
 
   const guildId = req.params.guildId;
 
@@ -503,7 +610,7 @@ app.get("/dashboard/:guildId/giveaways", (req, res) => {
 });
 
 
-app.post("/dashboard/:guildId/giveaways", (req,res)=>{
+app.post("/dashboard/:guildId/giveaways", dashboardAuth, checkDashboardGuildAccess, (req,res)=>{
 
  const guildId = req.params.guildId;
 
@@ -619,7 +726,7 @@ app.post("/dashboard/:guildId/giveaways", (req,res)=>{
 });
 
 
-app.get("/dashboard/:guildId/giveaways/delete/:id",(req,res)=>{
+app.get("/dashboard/:guildId/giveaways/delete/:id", dashboardAuth, checkDashboardGuildAccess, (req,res)=>{
  const client = req.app.get("client");
  console.log("DELETE GIVEAWAY:", req.params);
 
@@ -697,112 +804,131 @@ app.post("/dashboard/:guildId/giveaways/edit/:id",(req,res)=>{
 });
 
 
-app.get("/dashboard/:guildId/giveaways/reroll/:id",(req,res)=>{
+app.get("/dashboard/:guildId/giveaways/reroll/:id", dashboardAuth, checkDashboardGuildAccess, async (req, res) => {
 
- const {guildId,id}=req.params;
+  const { guildId, id } = req.params;
+  const client = req.app.get("client");
 
- db.get(
-  "SELECT * FROM giveaways WHERE id=? AND guild_id=?",
-  [id,guildId],
-  async (err,g)=>{
+  if (!client) {
+    return res.status(500).send("❌ البوت غير متصل");
+  }
 
-   if(!g) return res.send("السحب غير موجود");
+  try {
 
-   let users=[];
-
-   if(g.type==="forced"){
-
-    try{
-
-     const guild = await client.guilds.fetch(g.guild_id);
-     const members = guild.members.cache;
-
-     users = [...members.values()]
-      .filter(m=>m.roles.cache.has(g.role_id))
-      .map(m=>m.id);
-
-    }catch(e){
-     console.error("REROLL MEMBERS ERROR:", e);
-     return res.send("خطأ بجلب الأعضاء");
-    }
-
-   }else{
-
-    db.all(
-     "SELECT user_id FROM giveaway_entries WHERE giveaway_id=?",
-     [id],
-     (e,rows)=>{
-
-      users = rows.map(x=>x.user_id);
-
-     }
+    const g = await db.get(
+      "SELECT * FROM giveaways WHERE id=? AND guild_id=?",
+      [id, guildId]
     );
 
-   }
+    if (!g) {
+      return res.send("❌ السحب غير موجود");
+    }
 
+    let users = [];
 
-   db.all(
-    "SELECT user_id FROM giveaway_winners WHERE giveaway_id=?",
-    [id],
-    (e,old)=>{
+    if (g.type === "forced") {
 
-     console.log("REROLL BEFORE FILTER:", users.length);
-     const oldIds=(old||[]).map(x=>x.user_id);
+      const guild = await client.guilds.fetch(g.guild_id);
 
-     users=users.filter(u=>u !== oldIds[oldIds.length - 1]);
-     console.log("REROLL AFTER FILTER:", users.length);
+      await guild.members.fetch();
 
-     if(!users.length)
-       return res.send("لا يوجد مشاركين جدد");
+      users = [...guild.members.cache.values()]
+        .filter(member =>
+          g.role_id &&
+          member.roles.cache.has(g.role_id)
+        )
+        .map(member => member.id);
 
+    } else {
 
-     const winner=users[Math.floor(Math.random()*users.length)];
+      const entries = await db.all(
+        "SELECT user_id FROM giveaway_entries WHERE giveaway_id=?",
+        [id]
+      );
 
+      users = entries.map(row => row.user_id);
 
-     db.run(
+      // إعادة فحص الرتبة في السحب الاختياري
+      if (g.role_id) {
+
+        const guild = await client.guilds.fetch(g.guild_id);
+
+        await guild.members.fetch();
+
+        users = users.filter(userId => {
+          const member = guild.members.cache.get(userId);
+          return member && member.roles.cache.has(g.role_id);
+        });
+      }
+
+    }
+
+    const oldWinners = await db.all(
+      "SELECT user_id FROM giveaway_winners WHERE giveaway_id=?",
+      [id]
+    );
+
+    const oldIds = oldWinners.map(row => row.user_id);
+
+    users = users.filter(userId => !oldIds.includes(userId));
+
+    console.log(
+      "🔄 REROLL:",
+      id,
+      "TYPE:",
+      g.type,
+      "ELIGIBLE:",
+      users.length
+    );
+
+    if (!users.length) {
+      return res.send("❌ لا يوجد مشاركين مؤهلين لإعادة السحب");
+    }
+
+    const winner =
+      users[Math.floor(Math.random() * users.length)];
+
+    await db.run(
       "DELETE FROM giveaway_winners WHERE giveaway_id=?",
-      [id],
-      ()=>{
+      [id]
+    );
 
-       db.run(
-        "INSERT INTO giveaway_winners (giveaway_id,user_id,created_at) VALUES (?,?,?)",
-        [id,winner,Date.now()],
-        async ()=>{
-       
-       const channel = await client.channels.fetch(g.channel_id).catch(e=>{
-        console.error("REROLL CHANNEL ERROR:", e.message);
-        return null;
-       });
+    await db.run(
+      "INSERT INTO giveaway_winners (giveaway_id,user_id,created_at) VALUES (?,?,?)",
+      [id, winner, Date.now()]
+    );
 
-       console.log("REROLL CHANNEL:", !!channel);
+    const channel = await client.channels
+      .fetch(g.channel_id)
+      .catch(() => null);
 
-       if(channel){
-        channel.send(
+    if (channel) {
+
+      await channel.send(
 `🔄 **تم إعادة السحب**
 
 🎁 الجائزة: ${g.prize}
 
 🏆 الفائز الجديد:
 <@${winner}>`
-        ).catch(e=>{
-          console.error("REROLL SEND ERROR:", e.message);
-        });
-       }
-
-       res.redirect("/dashboard/"+guildId);
-        }
-       );
-      }
-
-     );
+      );
 
     }
-   );
+
+    return res.redirect(
+      "/dashboard/" + guildId + "/giveaways"
+    );
+
+  } catch (err) {
+
+    console.error("❌ REROLL ERROR:", err);
+
+    return res.status(500).send(
+      "❌ حدث خطأ أثناء إعادة السحب"
+    );
 
   }
- );
 
 });
-
 
 module.exports = app;
