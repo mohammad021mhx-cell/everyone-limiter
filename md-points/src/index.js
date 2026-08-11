@@ -61,8 +61,11 @@ client.once("clientReady", async () => {
         `INSERT INTO settings
          (guild_id, text_enabled, voice_enabled, text_points, voice_points,
           voice_interval, message_cooldown, min_message_length, messages_required)
-         VALUES (?,1,1,1,1,1,60,3,30)
-         ON CONFLICT (guild_id) DO NOTHING`,
+         VALUES (?,1,1,1,1,30,60,3,30)
+         ON CONFLICT (guild_id) DO UPDATE SET
+           voice_enabled = COALESCE(settings.voice_enabled, 1),
+           voice_points = COALESCE(settings.voice_points, 1),
+           voice_interval = COALESCE(settings.voice_interval, 30)`,
         [guild.id]
       );
 
@@ -73,10 +76,15 @@ client.once("clientReady", async () => {
   }
 });
 
+client.on("messageCreate", message => console.log("🧪 RAW MESSAGE:", message.author?.tag, JSON.stringify(message.content)));
 client.on(messageCreate.name, (...args) => messageCreate.execute(...args));
 client.on(voiceStateUpdate.name, (...args) => voiceStateUpdate.execute(...args));
 
 client.on("interactionCreate", async interaction => {
+
+  if (interaction.replied || interaction.deferred) {
+    return;
+  }
 
   if (interaction.isButton()) {
 
@@ -99,7 +107,7 @@ client.on("interactionCreate", async interaction => {
       db.get(
         "SELECT * FROM giveaways WHERE id=? AND guild_id=?",
         [giveawayId, guildId],
-        function(err, giveaway) {
+        async function(err, giveaway) {
 
           if (err || !giveaway) {
             console.error("❌ GIVEAWAY LOAD ERROR:", err);
@@ -115,6 +123,20 @@ client.on("interactionCreate", async interaction => {
               content: "❌ هذا السحب غير متاح للمشاركة حاليًا.",
               ephemeral: true
             });
+          }
+
+          // التحقق من الرتبة المطلوبة قبل المشاركة أو خصم النقاط
+          if (giveaway.role_id) {
+            const member = await interaction.guild.members
+              .fetch(userId)
+              .catch(() => null);
+
+            if (!member || !member.roles.cache.has(giveaway.role_id)) {
+              return interaction.reply({
+                content: "❌ لا يمكنك المشاركة في هذا السحب، يجب أن تمتلك الرتبة المطلوبة.",
+                ephemeral: true
+              });
+            }
           }
 
           db.get(
@@ -282,7 +304,7 @@ client.on("interactionCreate", async interaction => {
       db.get(
         "SELECT * FROM shop_items WHERE id=? AND guild_id=?",
         [itemId, guildId],
-        (err, item) => {
+        async (err, item) => {
 
           if (!item) {
             return interaction.reply({
@@ -296,6 +318,18 @@ client.on("interactionCreate", async interaction => {
               content: "❌ نفذت الكمية",
               ephemeral: true
             });
+          }
+
+          // التحقق من رتبة الشراء المطلوبة
+          if (item.required_role_id) {
+            const member = await interaction.guild.members.fetch(userId).catch(() => null);
+
+            if (!member || !member.roles.cache.has(item.required_role_id)) {
+              return interaction.reply({
+                content: "❌ لا يمكنك شراء هذا المنتج، يجب أن تمتلك الرتبة المطلوبة.",
+                ephemeral: true
+              });
+            }
           }
 
           if (item.requires_input) {
@@ -333,19 +367,51 @@ client.on("interactionCreate", async interaction => {
               db.run(
                 "UPDATE users SET total_points=total_points-? WHERE guild_id=? AND user_id=? AND total_points>=?",
                 [item.price, guildId, userId, item.price],
-                function(err) {
+                function(err, result) {
 
-                  if (err || this.changes === 0) {
+                  if (err || !result || result.rowCount === 0) {
                     return interaction.reply({
                       content: "❌ تعذر خصم النقاط، حاول مرة أخرى.",
                       ephemeral: true
                     });
                   }
 
-                  db.get(
-                    "SELECT purchase_channel FROM settings WHERE guild_id=?",
-                    [guildId],
-                    async (err, settings) => {
+                  db.run(
+                    `UPDATE shop_items
+                     SET stock = stock - 1
+                     WHERE id=? AND guild_id=? AND stock > 0`,
+                    [item.id, guildId],
+                    function(stockErr, stockResult) {
+
+                      if (stockErr) {
+                        db.run(
+                          "UPDATE users SET total_points=total_points+? WHERE guild_id=? AND user_id=?",
+                          [item.price, guildId, userId]
+                        );
+
+                        return interaction.reply({
+                          content: "❌ حدث خطأ أثناء تحديث كمية المنتج وتمت إعادة النقاط.",
+                          ephemeral: true
+                        });
+                      }
+
+                      // إذا كان المنتج محدودًا ولم تعد هناك كمية
+                      if (item.stock > 0 && (!stockResult || stockResult.rowCount === 0)) {
+                        db.run(
+                          "UPDATE users SET total_points=total_points+? WHERE guild_id=? AND user_id=?",
+                          [item.price, guildId, userId]
+                        );
+
+                        return interaction.reply({
+                          content: "❌ نفذت الكمية وتمت إعادة النقاط.",
+                          ephemeral: true
+                        });
+                      }
+
+                      db.get(
+                        "SELECT purchase_channel FROM settings WHERE guild_id=?",
+                        [guildId],
+                        async (err, settings) => {
                   if (!settings?.purchase_channel)
                     return interaction.reply({
                       content: "❌ لم يتم تحديد قناة الطلبات.",
@@ -389,6 +455,9 @@ client.on("interactionCreate", async interaction => {
                     content: "✅ تم إرسال طلبك للإدارة وبانتظار الموافقة.",
                     ephemeral: true
                   });
+                        }
+                      );
+
                     }
                   );
 
@@ -461,7 +530,7 @@ client.on("interactionCreate", async interaction => {
       db.get(
         "SELECT * FROM shop_items WHERE id=? AND guild_id=?",
         [itemId, guildId],
-        (err, item) => {
+        async (err, item) => {
 
           if (err || !item) {
             return interaction.reply({
@@ -477,21 +546,59 @@ client.on("interactionCreate", async interaction => {
             });
           }
 
+          // إعادة التحقق من رتبة الشراء عند تأكيد الـModal
+          if (item.required_role_id) {
+            const member = await interaction.guild.members
+              .fetch(userId)
+              .catch(() => null);
+
+            if (!member || !member.roles.cache.has(item.required_role_id)) {
+              return interaction.reply({
+                content: "❌ لا يمكنك شراء هذا المنتج، يجب أن تمتلك الرتبة المطلوبة.",
+                ephemeral: true
+              });
+            }
+          }
+
           db.run(
             `UPDATE users
              SET total_points = total_points - ?
              WHERE guild_id=? AND user_id=? AND total_points >= ?`,
             [item.price, guildId, userId, item.price],
-            function(err) {
+            function(err, result) {
 
-              if (err || this.changes === 0) {
+              if (err || !result || result.rowCount === 0) {
                 return interaction.reply({
                   content: "❌ رصيدك لا يكفي أو تعذر خصم النقاط.",
                   ephemeral: true
                 });
               }
 
+              // إنقاص المخزون بشكل آمن
               db.run(
+                `UPDATE shop_items
+                 SET stock = stock - 1
+                 WHERE id=? AND guild_id=? AND stock > 0`,
+                [item.id, guildId],
+                function(stockErr, stockResult) {
+
+                  if (stockErr || (item.stock > 0 && (!stockResult || stockResult.rowCount === 0))) {
+
+                    // إعادة النقاط إذا فشل حجز الكمية
+                    db.run(
+                      "UPDATE users SET total_points=total_points+? WHERE guild_id=? AND user_id=?",
+                      [item.price, guildId, userId]
+                    );
+
+                    return interaction.reply({
+                      content: stockErr
+                        ? "❌ حدث خطأ أثناء تحديث كمية المنتج وتمت إعادة النقاط."
+                        : "❌ نفذت الكمية وتمت إعادة النقاط.",
+                      ephemeral: true
+                    });
+                  }
+
+                  db.run(
                 `INSERT INTO purchases
                 (guild_id,user_id,item_id,item_name,price,user_input,created_at)
                 VALUES (?,?,?,?,?,?,?)`,
@@ -515,8 +622,15 @@ client.on("interactionCreate", async interaction => {
                       [item.price, guildId, userId]
                     );
 
+                    if (item.stock > 0) {
+                      db.run(
+                        "UPDATE shop_items SET stock=stock+1 WHERE id=? AND guild_id=?",
+                        [item.id, guildId]
+                      );
+                    }
+
                     return interaction.reply({
-                      content: "❌ حدث خطأ أثناء تسجيل الطلب وتمت إعادة النقاط.",
+                      content: "❌ حدث خطأ أثناء تسجيل الطلب وتمت إعادة النقاط والكمية.",
                       ephemeral: true
                     });
                   }
@@ -600,6 +714,9 @@ ${userInput}
                   );
 
                 }
+                  );
+                }
+
               );
 
             }
@@ -626,11 +743,17 @@ ${userInput}
   } catch (error) {
     console.error(error);
 
-    if (!interaction.replied) {
+    if (interaction.replied || interaction.deferred) {
+      return;
+    }
+
+    try {
       await interaction.reply({
         content: "حدث خطأ أثناء تنفيذ الأمر",
         ephemeral: true
       });
+    } catch (replyError) {
+      console.error("❌ ERROR REPLYING TO INTERACTION:", replyError);
     }
   }
 });
@@ -674,6 +797,36 @@ client.once("clientReady", async () => {
   console.log(`🎙️ تم العثور على ${found} عضو داخل الرومات الصوتية`);
 });
 
+
+// 🎙️ VOICE TIMER AUTO RESYNC
+// فحص الرومات من الكاش فقط، بدون Discord API fetch
+setInterval(async () => {
+  try {
+    let found = 0;
+
+    for (const guild of client.guilds.cache.values()) {
+      for (const [, voiceState] of guild.voiceStates.cache) {
+        if (!voiceState.channel) continue;
+
+        const member = voiceState.member;
+
+        if (!member || member.user.bot) continue;
+
+        found++;
+
+        await voiceStateUpdate.startVoiceTimer(member);
+      }
+    }
+
+    if (found > 0) {
+      console.log(`🔄 VOICE RESYNC: ${found} عضو بالصوت`);
+    }
+
+  } catch (err) {
+    console.error("❌ VOICE RESYNC ERROR:", err);
+  }
+}, 60 * 1000);
+
 client.login(process.env.TOKEN);
 
 const dashboard = require("./dashboard/app");
@@ -702,8 +855,11 @@ client.on("guildCreate", async (guild) => {
       `INSERT INTO settings
        (guild_id, text_enabled, voice_enabled, text_points, voice_points,
         voice_interval, message_cooldown, min_message_length, messages_required)
-       VALUES (?,1,1,1,1,1,60,3,30)
-       ON CONFLICT (guild_id) DO NOTHING`,
+       VALUES (?,1,1,1,1,30,60,3,30)
+       ON CONFLICT (guild_id) DO UPDATE SET
+         voice_enabled = COALESCE(settings.voice_enabled, 1),
+         voice_points = COALESCE(settings.voice_points, 1),
+         voice_interval = COALESCE(settings.voice_interval, 30)`,
       [guild.id]
     );
 

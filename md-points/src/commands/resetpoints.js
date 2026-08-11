@@ -14,17 +14,21 @@ module.exports = {
     db.run(
       "UPDATE users SET text_points=0, voice_points=0, total_points=0 WHERE guild_id=?",
       [interaction.guild.id],
-      function(err) {
+      function(err, result) {
 
         if (err) {
+          console.error("❌ RESET POINTS ERROR:", err);
+
           return interaction.reply({
             content: "❌ خطأ أثناء التصفير",
             ephemeral: true
           });
         }
 
+        const count = result?.rowCount ?? 0;
+
         interaction.reply({
-          content: `✅ تم تصفير نقاط ${this.changes} عضو`
+          content: `✅ تم تصفير نقاط ${count} عضو`
         });
 
       }

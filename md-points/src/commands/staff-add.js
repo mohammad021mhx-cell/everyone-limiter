@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require("discord.js");
 const db = require("../database/connect");
-const checkStaffPermission = require("../utils/checkStaffPermission");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,25 +13,24 @@ module.exports = {
     ),
 
   async execute(interaction) {
-
     const guildId = interaction.guild.id;
+    const userId = interaction.user.id;
 
-    const row = await db.get(
-      "SELECT COUNT(*) AS count FROM staff WHERE guild_id=?",
-      [guildId]
-    );
-
-    const staffCount = Number(row?.count || 0);
-
-    if (staffCount > 0) {
-      if (!(await checkStaffPermission(interaction))) return;
+    // مالك السيرفر فقط يستطيع إدارة الموظفين
+    if (interaction.guild.ownerId !== userId) {
+      return interaction.reply({
+        content: "❌ فقط مالك السيرفر يستطيع إضافة الموظفين.",
+        ephemeral: true
+      });
     }
 
     const member = interaction.options.getUser("member");
 
     try {
       await db.run(
-        "INSERT INTO staff (guild_id,user_id) VALUES (?,?) ON CONFLICT (guild_id,user_id) DO NOTHING",
+        `INSERT INTO staff (guild_id, user_id)
+         VALUES (?, ?)
+         ON CONFLICT (guild_id, user_id) DO NOTHING`,
         [guildId, member.id]
       );
 
@@ -42,7 +40,7 @@ module.exports = {
       });
 
     } catch (err) {
-      console.error(err);
+      console.error("STAFF ADD ERROR:", err);
 
       await interaction.reply({
         content: "❌ حدث خطأ أثناء إضافة الموظف.",

@@ -53,9 +53,9 @@ module.exports = function(client){
 
       }
 
-      users = members
-      .filter(m => m.roles.cache.has(giveaway.role_id))
-      .map(m => m.id);
+      users = [...members.values()]
+        .filter(m => !giveaway.role_id || m.roles.cache.has(giveaway.role_id))
+        .map(m => m.id);
 
       // السحب الإجباري برسوم
       const fee = Number(giveaway.entry_fee || 0);
@@ -143,6 +143,37 @@ module.exports = function(client){
       });
 
       users = entries.map(e=>e.user_id);
+
+      // إعادة فحص الرتبة قبل اختيار الفائزين
+      // إذا كان السحب يتطلب رتبة، لا يدخل القرعة إلا من يملكها حاليًا
+      if (giveaway.role_id) {
+
+        const guild = await client.guilds.fetch(giveaway.guild_id)
+          .catch(() => null);
+
+        if (!guild) {
+          console.error("❌ ROLE CHECK GUILD ERROR:", giveaway.guild_id);
+          processing.delete(giveaway.id);
+          continue;
+        }
+
+        const eligibleUsers = [];
+
+        for (const userId of users) {
+
+          const member = await guild.members.fetch(userId)
+            .catch(() => null);
+
+          if (
+            member &&
+            member.roles.cache.has(giveaway.role_id)
+          ) {
+            eligibleUsers.push(userId);
+          }
+        }
+
+        users = eligibleUsers;
+      }
 
     }
 

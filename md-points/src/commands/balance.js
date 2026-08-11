@@ -7,10 +7,16 @@ module.exports = {
     .setDescription("عرض رصيدك"),
 
   async execute(interaction) {
-    console.log("START balance", interaction.user.id);
+    console.log(
+      "START balance",
+      interaction.user.id,
+      "AGE:",
+      Date.now() - interaction.createdTimestamp,
+      "ms"
+    );
 
     try {
-      await interaction.deferReply();
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const guildId = interaction.guild.id;
       const userId = interaction.user.id;

@@ -7,7 +7,7 @@ const path = require("path");
 const commands = [];
 
 const commandsPath = path.join(__dirname, "src/commands");
-const files = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
+const files = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js") && !file.includes(".backup") && !file.endsWith(".bak.js"));
 
 for (const file of files) {
   const command = require(`./src/commands/${file}`);

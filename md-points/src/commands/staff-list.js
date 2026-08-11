@@ -1,13 +1,16 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const { SlashCommandBuilder } = require("discord.js");
 const db = require("../database/connect");
+const checkStaffPermission = require("../utils/checkStaffPermission");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("staff-list")
-    .setDescription("عرض موظفي المتجر")
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDescription("عرض موظفي المتجر"),
 
   async execute(interaction) {
+
+    if (!(await checkStaffPermission(interaction))) return;
+
     db.all(
       "SELECT user_id FROM staff WHERE guild_id=?",
       [interaction.guild.id],

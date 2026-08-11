@@ -11,7 +11,8 @@ db.exec(`
     enabled INTEGER DEFAULT 1,
     input_name TEXT DEFAULT '',
     requires_input INTEGER DEFAULT 0,
-    stock INTEGER DEFAULT -1
+    stock INTEGER DEFAULT -1,
+    required_role_id TEXT
   )
 `);
 

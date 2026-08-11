@@ -4,7 +4,11 @@ module.exports = session({
   secret: process.env.SESSION_SECRET || "md-points-secret",
   resave: false,
   saveUninitialized: false,
+  rolling: true,
+
   cookie: {
-    maxAge: 86400000
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false
   }
 });
